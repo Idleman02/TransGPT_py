@@ -15,7 +15,7 @@ def is_api_key_valid(api_key):
 class ChatTab(QtWidgets.QWidget):
     def __init__(self, api_key):
         super().__init__()
-        self.selected_api = "text-davinci-003"
+        self.selected_api = "gpt-3.5-turbo"
         self.api_key = api_key
 
         self.chat_log = QtWidgets.QTextEdit(self)
@@ -50,14 +50,13 @@ class ChatTab(QtWidgets.QWidget):
                         background: none;
                     }
                 """)
+        normal_height_log = self.chat_log.sizeHint().height()
+        self.chat_log.setFixedHeight(normal_height_log * 1.3)
         self.chat_input = QtWidgets.QTextEdit(self)
         self.chat_input.setPlaceholderText("Send a messages")
-        # 注意: QTextEdit 使用的信号是 textChanged,
-        # 但它不是在按回车时触发的，你可能需要使用一个按钮或其他方法来发送消息
-        self.chat_input.textChanged.connect(self.send_message)
 
         # 设置QTextEdit的最小高度、圆角效果、滚动条和其他样式
-        self.chat_input.setMinimumHeight(40)
+        #  self.chat_input.setMinimumHeight(40)
         self.chat_input.setStyleSheet("""
             QTextEdit {
                 border: none;
@@ -90,18 +89,13 @@ class ChatTab(QtWidgets.QWidget):
             }
         """)
 
-        # 创建一个 QGraphicsDropShadowEffect 对象并设置属性
         shadow = QtWidgets.QGraphicsDropShadowEffect(self.chat_input)
-        shadow.setBlurRadius(15)  # 阴影模糊半径
-        shadow.setOffset(0, 0)  # 阴影的偏移量
-        shadow.setColor(QtGui.QColor("grey"))  # 阴影的颜色
-
-        # 应用阴影效果到你的 QTextEdit 组件上
+        shadow.setBlurRadius(15)
+        shadow.setOffset(0, 0)
+        shadow.setColor(QtGui.QColor("grey"))
         self.chat_input.setGraphicsEffect(shadow)
-
-        # 如果你希望在按下“Enter”键时触发某些操作（例如，发送消息），而不是插入一个新行，
-        # 你可能需要重新实现 QTextEdit 的键盘事件处理。
-        # 例如，通过在你的类中添加一个自定义的 QTextEdit 并重新实现其 keyPressEvent 方法。
+        normal_height_input = self.chat_input.sizeHint().height()
+        self.chat_input.setFixedHeight(normal_height_input * 0.75)
 
         self.config_layout = QtWidgets.QHBoxLayout()
 
@@ -193,7 +187,7 @@ class ChatTab(QtWidgets.QWidget):
         self.max_tokens_input.setStyleSheet("""
             QLineEdit {
                 border: none;  /* Remove border */
-                font-size: 18px;  /* Increase font size */
+                font-size: 16px;  /* Increase font size */
                 padding: 10px;  /* Add some padding */
                 background-color: #FFFFFF;  /* White background color */
                 border-radius: 10px;  /* Add rounded corners */
@@ -287,7 +281,6 @@ class ChatTab(QtWidgets.QWidget):
                 padding: 10px 25px;  /* Padding: vertical, horizontal */
                 font-size: 16px;  /* Text size */
                 font-family: "Arial";  /* Font family */
-                transition: background-color 0.5s, color 0.5s, border 0.5s;  /* Smooth transition for background, color, and border */
             }
             QPushButton:hover {
                 background-color: #B0E0E6;  /* Powder Blue */
@@ -313,7 +306,6 @@ class ChatTab(QtWidgets.QWidget):
                 padding: 10px 25px;  /* Padding: vertical, horizontal */
                 font-size: 16px;  /* Text size */
                 font-family: "Arial";  /* Font family */
-                transition: background-color 0.5s, color 0.5s, border 0.5s;  /* Smooth transition for background, color, and border */
             }
             QPushButton:hover {
                 background-color: #FFE4B5;  /* Moccasin */
@@ -334,28 +326,25 @@ class ChatTab(QtWidgets.QWidget):
         self.layout.addLayout(self.config_layout)
         self.layout.addWidget(self.chat_input)
 
-        button_layout = QtWidgets.QHBoxLayout()
-        button_layout.addWidget(self.send_button)
-        button_layout.addWidget(self.export_button)
-        self.layout.addLayout(button_layout)
+        self.button_layout = QtWidgets.QHBoxLayout()
+        self.button_layout.addWidget(self.send_button)
+        self.button_layout.addWidget(self.export_button)
+        self.layout.addLayout(self.button_layout)
 
     @Slot()
     def showEvent(self, event):
         super().showEvent(event)
         self.chat_input.setFocus()
 
+    @Slot()
     def api_radio_button_toggled(self):
-        if self.api_davinci_radio_button.isChecked():
-            self.selected_api = "text-davinci-003"
-        elif self.api_curie_radio_button.isChecked():
-            self.selected_api = "text-curie-001"
-        elif self.api_babbage_radio_button.isChecked():
-            self.selected_api = "text-babbage-001"
-        elif self.api_ada_radio_button.isChecked():
-            self.selected_api = "text-ada-001"
+        if self.api_gpt35_radio_button.isChecked():
+            self.selected_api = "gpt-3.5-turbo"
+        elif self.api_gpt4_radio_button.isChecked():
+            self.selected_api = "gpt-4"
 
     def send_message(self):
-        message = self.chat_input.text()
+        message = self.chat_input.toPlainText()
         if not message:
             return
         self.chat_input.clear()
@@ -366,30 +355,17 @@ class ChatTab(QtWidgets.QWidget):
         user_cursor.insertText(f"\n{message}\n\n")
 
         max_tokens_text = self.max_tokens_input.text()
-        if self.api_davinci_radio_button.isChecked():
-            if (
-                    not max_tokens_text.isdigit()
-                    or int(max_tokens_text) < 0
-                    or int(max_tokens_text) > 4000
-            ):
-                QtWidgets.QMessageBox.warning(
-                    self,
-                    "Invalid Max Tokens",
-                    "Please enter a valid max tokens value between 0 and 4000.",
-                )
-                return
-        else:
-            if (
-                    not max_tokens_text.isdigit()
-                    or int(max_tokens_text) < 0
-                    or int(max_tokens_text) > 2046
-            ):
-                QtWidgets.QMessageBox.warning(
-                    self,
-                    "Invalid Max Tokens",
-                    "Please enter a valid max tokens value between 0 and 2046.",
-                )
-                return
+        if (
+                not max_tokens_text.isdigit()
+                or int(max_tokens_text) < 0
+                or int(max_tokens_text) > 4000
+        ):
+            QtWidgets.QMessageBox.warning(
+                self,
+                "Invalid Max Tokens",
+                "Please enter a valid max tokens value between 0 and 2046.",
+            )
+            return
 
         temperature_text = self.temperature_input.text()
         if float(temperature_text) < 0:
@@ -419,8 +395,6 @@ class ChatTab(QtWidgets.QWidget):
             QtWidgets.QMessageBox.critical(self, "API Error", error_msg)
             self.chat_log.append(f"{error_msg}\n\n")
 
-        self.chat_log.setReadOnly(True)
-
     def export_chat(self):
         now = datetime.now()
         timestamp = now.strftime("%Y-%m-%d-%H-%M-%S")
@@ -447,7 +421,6 @@ class ChatWindow(QtWidgets.QWidget):
         self.setWindowTitle("GUI-GPT")
         self.setGeometry(50, 50, 800, 600)
 
-
         self.tab_widget = QtWidgets.QTabWidget(self)
         self.tab_widget.setStyleSheet("background-color: white;")
         self.tab_widget.setTabsClosable(True)
@@ -465,7 +438,7 @@ class ChatWindow(QtWidgets.QWidget):
                 padding: 10px 25px;  /* Padding: vertical, horizontal */
                 font-size: 16px;  /* Text size */
                 font-family: "Arial";  /* Font family */
-                transition: background-color 0.5s, color 0.5s, border 0.5s;  /* Smooth transition for background, color and border */
+
             }
             QPushButton:hover {
                 background-color: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1,
@@ -480,7 +453,7 @@ class ChatWindow(QtWidgets.QWidget):
 
         self.new_tab_button.clicked.connect(self.add_new_tab)
         self.copyright = QtWidgets.QLabel("© [2023] Oops Computing Team. All Rights Reserved.")
-        #self.copyright.setStyleSheet("background-color: white;")
+        self.copyright.setStyleSheet("background-color: white;")
         self.bottom_box = QtWidgets.QGroupBox()
         self.bottom_layout = QtWidgets.QHBoxLayout(self.bottom_box)
         self.bottom_layout.addWidget(self.copyright)
@@ -519,7 +492,6 @@ class ChatWindow(QtWidgets.QWidget):
                 self,
                 "OpenAI API Key",
                 "Enter your OpenAI API key:",
-                QtWidgets.QLineEdit.Normal,
                 "",
             )
             if not ok:
@@ -540,5 +512,6 @@ class ChatWindow(QtWidgets.QWidget):
 app = QtWidgets.QApplication([])
 window = ChatWindow()
 window.show()
-app.exec_()
+app.exec()
+
 
