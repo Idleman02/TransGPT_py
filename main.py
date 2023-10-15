@@ -16,6 +16,7 @@ def is_api_key_valid(api_key):
 class ChatTab(QtWidgets.QWidget):
     def __init__(self, api_key):
         super().__init__()
+        self.conversation_history = []
         self.selected_api = "gpt-3.5-turbo"
         self.api_key = api_key
         self.chat_log = QtWidgets.QTextEdit(self)
@@ -422,26 +423,32 @@ class ChatTab(QtWidgets.QWidget):
         if not message:
             return
         self.chat_input.clear()
-        self.chat_log.setReadOnly(True)
 
-        user_cursor = self.chat_log.textCursor()
-        user_cursor.insertHtml("<span style='color: blue'>You: </span>")
-        user_cursor.insertText(f"\n{message}\n\n")
+        # 获取用户输入内容
+        user_input = message
+
+        # 创建用户消息对象并添加到历史对话中
+        user_message = {"role": "user", "content": user_input}
+        self.conversation_history.append(user_message)
+
+        self.chat_log.setReadOnly(True)
 
         try:
             openai.api_key = self.api_key
 
+            # 发送包含整个历史对话的请求
             response = openai.ChatCompletion.create(
                 model="gpt-3.5-turbo",
-                messages=[
-                    {"role": "system", "content": "You are a helpful assistant."},
-                    {"role": "user", "content": message},
-                ],
+                messages=self.conversation_history  # 使用历史对话
             )
 
             response_text = response.choices[0].message["content"]
 
             response_cursor = self.chat_log.textCursor()
+
+            # 显示用户输入和 GPT 响应
+            response_cursor.insertHtml("<span style='color: blue'>You: </span>")
+            response_cursor.insertText(f"\n{user_input}\n\n")
             response_cursor.insertHtml("<span style='color: red'>GPT: </span>")
             response_cursor.insertText(f"{response_text}\n\n")
         except Exception as e:
