@@ -3,6 +3,7 @@ import sys
 from datetime import datetime
 
 import openai
+import pyperclip
 from PySide6 import QtWidgets, QtGui
 from PySide6.QtCore import Slot
 
@@ -17,7 +18,6 @@ class ChatTab(QtWidgets.QWidget):
         super().__init__()
         self.selected_api = "gpt-3.5-turbo"
         self.api_key = api_key
-
         self.chat_log = QtWidgets.QTextEdit(self)
         self.chat_log.setReadOnly(True)
         self.chat_log.setStyleSheet("""
@@ -296,8 +296,8 @@ class ChatTab(QtWidgets.QWidget):
 
         self.send_button.clicked.connect(self.send_message)
 
-        self.export_button = QtWidgets.QPushButton("Translate", self)
-        self.export_button.setStyleSheet("""
+        self.translate_button = QtWidgets.QPushButton("Translate", self)
+        self.translate_button.setStyleSheet("""
             QPushButton {
                 background-color: #FFA07A;  /* Light Salmon */
                 color: #FFFFFF;  /* White */
@@ -318,6 +318,28 @@ class ChatTab(QtWidgets.QWidget):
                 border: 2px solid #FF4500;  /* Orange Red */
             }
         """)
+        self.translate_button.clicked.connect(self.translate_from_clipboard)
+
+        self.export_button = QtWidgets.QPushButton("Export", self)
+        self.export_button.setStyleSheet("""
+            QPushButton {
+                background-color: #5F9E6E;  /* 深绿色 */
+                color: #FFFFFF;  /* White */
+                border: none;  /* 移除外侧轮廓 */
+                border-radius: 15px;  /* Rounded corners */
+                padding: 10px 25px;  /* Padding: vertical, horizontal */
+                font-size: 16px;  /* Text size */
+                font-family: "Arial";  /* Font family */
+            }
+            QPushButton:hover {
+                background-color: #4682B4;  /* Steel Blue */
+                color: #FFFFFF;  /* White */
+            }
+            QPushButton:pressed {
+                background-color: #2E8B57;  /* Sea Green */
+                color: #FFFFFF;  /* White */
+            }
+        """)
 
         self.export_button.clicked.connect(self.export_chat)
 
@@ -328,10 +350,62 @@ class ChatTab(QtWidgets.QWidget):
 
         self.button_layout = QtWidgets.QHBoxLayout()
         self.button_layout.addWidget(self.send_button)
+        self.button_layout.addWidget(self.translate_button)
         self.button_layout.addWidget(self.export_button)
         self.layout.addLayout(self.button_layout)
 
     @Slot()
+    def translate_from_clipboard(self):
+        api_key = self.api_key
+        if not api_key:
+            return
+
+        clipboard = QtWidgets.QApplication.clipboard()
+        clipboard_text = clipboard.text()
+
+        if not clipboard_text:
+            return
+
+        selected_language = self.language_combobox.currentText()
+
+        max_tokens_text = self.max_tokens_input.text()
+        if (not max_tokens_text.isdigit() or int(max_tokens_text) < 0 or int(max_tokens_text) > 4000):
+            QtWidgets.QMessageBox.warning(self, "Invalid Max Tokens",
+                                          "Please enter a valid max tokens value between 0 and 2046.")
+            return
+
+        temperature_text = self.temperature_input.text()
+        if float(temperature_text) < 0:
+            QtWidgets.QMessageBox.warning(self, "Invalid Temperature",
+                                          "Please enter a valid temperature value greater than 0.")
+            return
+
+        openai.api_key = api_key
+        try:
+            request = f"Please translate the following sentence to {selected_language}: {clipboard_text}"
+            response = openai.ChatCompletion.create(
+                model="gpt-3.5-turbo",  # 使用正确的模型
+                messages=[
+                    {"role": "system", "content": "You are a helpful assistant that translates text."},
+                    {"role": "user", "content": request}
+                ]
+            )
+            response_text = response.choices[0].message["content"]
+            response_cursor = self.chat_log.textCursor()
+
+            # 设置GPT返回文本的颜色为黑色
+            response_cursor.insertHtml("<span style='color: black'>GPT: </span>")
+            response_cursor.insertText(f"翻译结果为：{response_text}\n\n")
+
+            self.chat_log.setReadOnly(False)
+            #self.chat_log.append(f"User: {request}")
+            #self.chat_log.append(f"GPT: {response_text}\n")
+            self.chat_log.setReadOnly(True)
+        except Exception as e:
+            error_msg = f"Error: {str(e)}"
+            QtWidgets.QMessageBox.critical(self, "API Error", error_msg)
+            self.chat_log.append(f"{error_msg}\n")
+
     def showEvent(self, event):
         super().showEvent(event)
         self.chat_input.setFocus()
@@ -354,42 +428,22 @@ class ChatTab(QtWidgets.QWidget):
         user_cursor.insertHtml("<span style='color: blue'>You: </span>")
         user_cursor.insertText(f"\n{message}\n\n")
 
-        max_tokens_text = self.max_tokens_input.text()
-        if (
-                not max_tokens_text.isdigit()
-                or int(max_tokens_text) < 0
-                or int(max_tokens_text) > 4000
-        ):
-            QtWidgets.QMessageBox.warning(
-                self,
-                "Invalid Max Tokens",
-                "Please enter a valid max tokens value between 0 and 2046.",
-            )
-            return
-
-        temperature_text = self.temperature_input.text()
-        if float(temperature_text) < 0:
-            QtWidgets.QMessageBox.warning(
-                self,
-                "Invalid Temperature",
-                "Please enter a valid temperature value greater than 0.",
-            )
-            return
-
         try:
             openai.api_key = self.api_key
-            response = openai.Completion.create(
-                engine=self.selected_api,
-                prompt=f"{message}\n",
-                max_tokens=int(max_tokens_text),
-                temperature=float(temperature_text),
+
+            response = openai.ChatCompletion.create(
+                model="gpt-3.5-turbo",
+                messages=[
+                    {"role": "system", "content": "You are a helpful assistant."},
+                    {"role": "user", "content": message},
+                ],
             )
-            response_text = response["choices"][0]["text"]
+
+            response_text = response.choices[0].message["content"]
 
             response_cursor = self.chat_log.textCursor()
             response_cursor.insertHtml("<span style='color: red'>GPT: </span>")
             response_cursor.insertText(f"{response_text}\n\n")
-
         except Exception as e:
             error_msg = f"Error: {str(e)}"
             QtWidgets.QMessageBox.critical(self, "API Error", error_msg)
@@ -486,9 +540,27 @@ class ChatWindow(QtWidgets.QWidget):
     def get_api_key(self):
         config = configparser.ConfigParser()
         config.read("config.ini")
-        api_key = config.get("API", "key", fallback="")
-        while not api_key or not is_api_key_valid(api_key):
-            api_key, ok = QtWidgets.QInputDialog.getText(
+        api_key_value = config.get("API", "key", fallback=None)  # 尝试从配置文件中获取API密钥
+
+        if is_api_key_valid(api_key_value):
+            return api_key_value  # 如果已经存在有效的API密钥，直接返回
+
+        api_key_value, ok = QtWidgets.QInputDialog.getMultiLineText(
+            self,
+            "OpenAI API Key",
+            "Enter your OpenAI API key:",
+            "",
+        )
+        if not ok:
+            sys.exit()
+
+        while not is_api_key_valid(api_key_value):
+            QtWidgets.QMessageBox.warning(
+                self,
+                "Invalid API Key",
+                "The API key you entered is invalid. Please try again.",
+            )
+            api_key_value, ok = QtWidgets.QInputDialog.getMultiLineText(
                 self,
                 "OpenAI API Key",
                 "Enter your OpenAI API key:",
@@ -496,22 +568,18 @@ class ChatWindow(QtWidgets.QWidget):
             )
             if not ok:
                 sys.exit()
-            if is_api_key_valid(api_key):
-                config["API"] = {"key": api_key}
-                with open("config.ini", "w") as configfile:
-                    config.write(configfile)
-            else:
-                QtWidgets.QMessageBox.warning(
-                    self,
-                    "Invalid API Key",
-                    "The API key you entered is invalid. Please try again.",
-                )
-        return api_key
+
+        config["API"] = {"key": api_key_value}
+        with open("config.ini", "w") as configfile:
+            config.write(configfile)
+
+        return api_key_value
 
 
 app = QtWidgets.QApplication([])
 window = ChatWindow()
 window.show()
+
 app.exec()
 
 
