@@ -1,10 +1,10 @@
 import configparser
 import sys
 from datetime import datetime
-
+from PySide6.QtGui import QIcon
 import openai
-import pyperclip
 from PySide6 import QtWidgets, QtGui
+from PySide6.QtCore import QCoreApplication
 from PySide6.QtCore import Slot
 
 
@@ -20,6 +20,7 @@ class ChatTab(QtWidgets.QWidget):
         self.selected_api = "gpt-3.5-turbo"
         self.api_key = api_key
         self.chat_log = QtWidgets.QTextEdit(self)
+    #    self.chat_log.textChanged.connect(self.update_preview)
         self.chat_log.setReadOnly(True)
         self.chat_log.setStyleSheet("""
                     QTextEdit {
@@ -52,9 +53,9 @@ class ChatTab(QtWidgets.QWidget):
                     }
                 """)
         normal_height_log = self.chat_log.sizeHint().height()
-        self.chat_log.setFixedHeight(normal_height_log * 1.3)
+        self.chat_log.setFixedHeight(normal_height_log * 1.5)
         self.chat_input = QtWidgets.QTextEdit(self)
-        self.chat_input.setPlaceholderText("Send a messages")
+        self.chat_input.setPlaceholderText("Send a message")
 
         # 设置QTextEdit的最小高度、圆角效果、滚动条和其他样式
         #  self.chat_input.setMinimumHeight(40)
@@ -229,9 +230,16 @@ class ChatTab(QtWidgets.QWidget):
         # 创建一个下拉框
         self.language_combobox = QtWidgets.QComboBox()
         # 添加所述的选项
-        languages = ["Chinese", "English", "German", "French", "Japanese"]
 
-        self.language_combobox.addItems(languages)
+        languages = ["Chinese", "English", "German", "French", "Japanese"]
+        flags = ["China.png",
+                 "America.png",
+                 "Germany.jpg",
+                 "France.jpg",
+                 "Japan.png"]
+
+        for lang, flag in zip(languages, flags):
+            self.language_combobox.addItem(QIcon(flag), lang)
 
         self.language_combobox.setStyleSheet("""
             QComboBox {
@@ -357,109 +365,136 @@ class ChatTab(QtWidgets.QWidget):
 
     @Slot()
     def translate_from_clipboard(self):
-        api_key = self.api_key
+        api_key = self.api_key  # 获取API密钥
         if not api_key:
-            return
+            return  # 如果没有API密钥，返回
 
-        clipboard = QtWidgets.QApplication.clipboard()
-        clipboard_text = clipboard.text()
+        clipboard = QtWidgets.QApplication.clipboard()  # 获取系统剪贴板
+        clipboard_text = clipboard.text()  # 从剪贴板获取文本
 
         if not clipboard_text:
-            return
+            return  # 如果剪贴板没有文本，返回
 
-        selected_language = self.language_combobox.currentText()
+        selected_language = self.language_combobox.currentText()  # 获取所选的语言
 
-        max_tokens_text = self.max_tokens_input.text()
+        max_tokens_text = self.max_tokens_input.text()  # 获取max tokens值
+        # 验证max tokens值的有效性
         if (not max_tokens_text.isdigit() or int(max_tokens_text) < 0 or int(max_tokens_text) > 4000):
             QtWidgets.QMessageBox.warning(self, "Invalid Max Tokens",
                                           "Please enter a valid max tokens value between 0 and 2046.")
             return
 
-        temperature_text = self.temperature_input.text()
+        temperature_text = self.temperature_input.text()  # 获取温度值
+        # 验证温度值的有效性
         if float(temperature_text) < 0:
             QtWidgets.QMessageBox.warning(self, "Invalid Temperature",
                                           "Please enter a valid temperature value greater than 0.")
             return
 
-        openai.api_key = api_key
+        openai.api_key = api_key  # 设置openai API密钥
         try:
-            request = f"Please translate the following sentence to {selected_language}: {clipboard_text}"
+            # 创建翻译请求
+            request = f"Please translate the following sentence to {selected_language}，and give me translation outcome without anything else: {clipboard_text}"
             response = openai.ChatCompletion.create(
-                model="gpt-3.5-turbo",  # 使用正确的模型
+                model=self.selected_api,  # 使用指定的模型
                 messages=[
                     {"role": "system", "content": "You are a helpful assistant that translates text."},
                     {"role": "user", "content": request}
                 ]
             )
-            response_text = response.choices[0].message["content"]
-            response_cursor = self.chat_log.textCursor()
+            response_text = response.choices[0].message["content"]  # 获取响应文本
+            response_cursor = self.chat_log.textCursor()  # 获取聊天日志的光标
 
-            # 设置GPT返回文本的颜色为黑色
+            # 将响应文本设置为黑色
             response_cursor.insertHtml("<span style='color: black'>GPT: </span>")
             response_cursor.insertText(f"翻译结果为：{response_text}\n\n")
 
-            self.chat_log.setReadOnly(False)
-            #self.chat_log.append(f"User: {request}")
-            #self.chat_log.append(f"GPT: {response_text}\n")
-            self.chat_log.setReadOnly(True)
+            self.chat_log.setReadOnly(False)  # 允许编辑聊天日志
+            # self.chat_log.append(f"User: {request}")
+            # self.chat_log.append(f"GPT: {response_text}\n")
+            self.chat_log.setReadOnly(True)  # 设置聊天日志为只读
         except Exception as e:
+            # 错误处理
             error_msg = f"Error: {str(e)}"
             QtWidgets.QMessageBox.critical(self, "API Error", error_msg)
             self.chat_log.append(f"{error_msg}\n")
 
     def showEvent(self, event):
-        super().showEvent(event)
-        self.chat_input.setFocus()
+        super().showEvent(event)  # 调用父类的showEvent
+        self.chat_input.setFocus()  # 将焦点设置在聊天输入框上
 
     @Slot()
     def api_radio_button_toggled(self):
+        # 切换API版本
         if self.api_gpt35_radio_button.isChecked():
             self.selected_api = "gpt-3.5-turbo"
         elif self.api_gpt4_radio_button.isChecked():
             self.selected_api = "gpt-4"
 
     def send_message(self):
-        message = self.chat_input.toPlainText()
+        # 在发送消息之前，禁用按钮
+        self.send_button.setDisabled(True)
+        self.translate_button.setDisabled(True)
+        self.export_button.setDisabled(True)
+
+        # 禁用API版本选择按钮
+        self.api_gpt35_radio_button.setEnabled(False)
+        self.api_gpt4_radio_button.setEnabled(False)
+
+        message = self.chat_input.toPlainText()  # 获取用户输入
         if not message:
-            return
-        self.chat_input.clear()
+            return  # 如果没有输入，返回
+        self.chat_input.clear()  # 清除输入框
 
-        # 获取用户输入内容
-        user_input = message
+        # 创建用户消息并添加到历史对话中
+        user_message = {"role": "user", "content": message}
+        response_cursor = self.chat_log.textCursor()  # 获取聊天日志的光标
+        response_cursor.insertHtml("<span style='color: black; font-style: italic;'>You: </span>")  # 插入'You:'标签
+        response_cursor.insertText(f"{message}\n\n")  # 插入用户消息
+        response_cursor.insertHtml("<span style='color: red;'>GPT: </span>")  # 插入'GPT:'标签
+        self.conversation_history.append(user_message)  # 添加到历史对话
 
-        # 创建用户消息对象并添加到历史对话中
-        user_message = {"role": "user", "content": user_input}
-        self.conversation_history.append(user_message)
-
-        self.chat_log.setReadOnly(True)
+        self.chat_log.setReadOnly(True)  # 设置聊天日志为只读
 
         try:
-            openai.api_key = self.api_key
+            openai.api_key = self.api_key  # 设置openai API密钥
 
-            # 发送包含整个历史对话的请求
+            # 向openai发送消息
             response = openai.ChatCompletion.create(
-                model="gpt-3.5-turbo",
-                messages=self.conversation_history  # 使用历史对话
+                model=self.selected_api,
+                messages=self.conversation_history,  # 使用历史对话
+                stream=True
             )
 
-            response_text = response.choices[0].message["content"]
-
-            response_cursor = self.chat_log.textCursor()
-
-            # 显示用户输入和 GPT 响应
-            response_cursor.insertHtml("<span style='color: blue'>You: </span>")
-            response_cursor.insertText(f"\n{user_input}\n\n")
-            response_cursor.insertHtml("<span style='color: red'>GPT: </span>")
-            response_cursor.insertText(f"{response_text}\n\n")
+            # 创建变量以收集数据流
+            collected_chunks = []
+            collected_messages = []
+            for chunk in response:  # 遍历数据流的事件
+                collected_chunks.append(chunk)  # 保存事件响应
+                chunk_message = chunk['choices'][0]['delta']  # 提取消息
+                collected_messages.append(chunk_message)  # 保存消息
+                response_text = chunk_message.get('content', '')  # 获取响应文本
+                response_cursor.insertText(f"{response_text}")  # 插入响应文本
+                QCoreApplication.processEvents()
+            response_cursor.insertText(f"\n\n")  # 插入新的行
+            # 恢复按钮的活跃状态
+            self.send_button.setDisabled(False)
+            self.translate_button.setDisabled(False)
+            self.export_button.setDisabled(False)
         except Exception as e:
+            # 错误处理
             error_msg = f"Error: {str(e)}"
             QtWidgets.QMessageBox.critical(self, "API Error", error_msg)
             self.chat_log.append(f"{error_msg}\n\n")
+            self.send_button.setDisabled(False)
+            self.translate_button.setDisabled(False)
+            self.export_button.setDisabled(False)
 
     def export_chat(self):
+        # 导出聊天记录为.txt文件
         now = datetime.now()
         timestamp = now.strftime("%Y-%m-%d-%H-%M-%S")
-        file_name = f"chat_{timestamp}.txt"
+        file_name = f"chat_{timestamp}.txt"  # 文件名为chat_时间戳.txt
 
         try:
             with open(file_name, "w") as f:
@@ -468,6 +503,7 @@ class ChatTab(QtWidgets.QWidget):
                 self, "Export Successful", f"The chat has been exported to {file_name}."
             )
         except Exception as e:
+            # 错误处理
             QtWidgets.QMessageBox.critical(
                 self,
                 "Export Error",
@@ -479,7 +515,7 @@ class ChatWindow(QtWidgets.QWidget):
     def __init__(self):
         super().__init__()
         self.setStyleSheet("background-color: white;")
-        self.setWindowTitle("GUI-GPT")
+        self.setWindowTitle("TransGPT")
         self.setGeometry(50, 50, 800, 600)
 
         self.tab_widget = QtWidgets.QTabWidget(self)
@@ -487,6 +523,45 @@ class ChatWindow(QtWidgets.QWidget):
         self.tab_widget.setTabsClosable(True)
         self.tab_widget.tabCloseRequested.connect(self.close_tab)
         self.tab_widget.tabCloseRequested.connect(self.check_tab_count)
+        self.tab_widget.setUsesScrollButtons(True)  # 启用滚动按钮
+        self.tab_widget.setStyleSheet("""
+            QTabBar::tab {
+                background: #e1f4ff;
+                color: #4a4a4a;
+                padding: 8px;
+                width: 20px;
+                height: 90px;
+                border-top-left-radius: 6px;  
+                border-bottom-left-radius: 6px;
+                border-right: 2px solid #c8e0f0; 
+            }
+            QTabBar::tab:selected {
+                background: #2e91f9;
+                color: #ffffff;
+                border-right: 2px solid #2e91f9; 
+            }
+            QTabBar QAbstractButton {
+                background: #e1f4ff;
+                border: none;
+                padding: 10px;  /* 为箭头添加更多的填充 */
+            }
+            QTabBar QAbstractButton::up-arrow {
+                width: 0;
+                height: 0;
+                border-left: 7px solid transparent;   /* 控制箭头宽度 */
+                border-right: 7px solid transparent;  /* 控制箭头宽度 */
+                border-bottom: 12px solid #2e91f9;    /* 控制箭头高度 */
+            }
+            QTabBar QAbstractButton::down-arrow {
+                width: 0;
+                height: 0;
+                border-left: 7px solid transparent;   /* 控制箭头宽度 */
+                border-right: 7px solid transparent;  /* 控制箭头宽度 */
+                border-top: 12px solid #2e91f9;       /* 控制箭头高度 */
+            }
+        """)
+
+        self.tab_widget.setTabPosition(QtWidgets.QTabWidget.West)
 
         self.new_tab_button = QtWidgets.QPushButton("New Chat Tab", self)
         self.new_tab_button.setStyleSheet("""
@@ -571,7 +646,6 @@ class ChatWindow(QtWidgets.QWidget):
                 self,
                 "OpenAI API Key",
                 "Enter your OpenAI API key:",
-                "",
             )
             if not ok:
                 sys.exit()
@@ -588,5 +662,3 @@ window = ChatWindow()
 window.show()
 
 app.exec()
-
-
