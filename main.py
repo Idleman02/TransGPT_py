@@ -384,10 +384,11 @@ class ChatTab(QtWidgets.QWidget):
         if not api_key:
             return  # 如果没有API密钥，返回
 
-        clipboard_text = self.chat_input.toPlainText()  # 从剪贴板获取文本
+        clipboard_text = self.chat_input.toPlainText()  # 从输入框获取文本
 
         if not clipboard_text:
-            return  # 如果剪贴板没有文本，返回
+            clipboard = QtGui.QGuiApplication.clipboard()  # 获取剪贴板
+            clipboard_text = clipboard.text()  # 从剪贴板获取文本
 
         selected_language = self.language_combobox.currentText()  # 获取所选的语言
 
