@@ -3,10 +3,13 @@ import sys
 from datetime import datetime
 from PySide6.QtGui import QIcon
 import openai
-from PySide6 import QtWidgets, QtGui
+from PySide6 import QtWidgets, QtGui, QtCore
 from PySide6.QtCore import QCoreApplication
 from PySide6.QtCore import Slot
 
+import os
+os.environ['HTTP_PROXY'] = '192.168.43.224:7890'
+os.environ['HTTPS_PROXY'] = '192.168.43.224:7890'
 
 # 以下函数只是一个示例, 你应该按照你的实际情况去验证API密钥
 def is_api_key_valid(api_key):
@@ -16,12 +19,14 @@ def is_api_key_valid(api_key):
 class ChatTab(QtWidgets.QWidget):
     def __init__(self, api_key):
         super().__init__()
-        self.conversation_history = []
+        self.conversation_history = []       
         self.selected_api = "gpt-3.5-turbo"
         self.api_key = api_key
+
         self.chat_log = QtWidgets.QTextEdit(self)
     #    self.chat_log.textChanged.connect(self.update_preview)
         self.chat_log.setReadOnly(True)
+        # 定义了文本编辑框的外观
         self.chat_log.setStyleSheet("""
                     QTextEdit {
                         border: 2px solid black;
@@ -54,9 +59,9 @@ class ChatTab(QtWidgets.QWidget):
                 """)
         normal_height_log = self.chat_log.sizeHint().height()
         self.chat_log.setFixedHeight(normal_height_log * 1.5)
+
         self.chat_input = QtWidgets.QTextEdit(self)
         self.chat_input.setPlaceholderText("Send a message")
-
         # 设置QTextEdit的最小高度、圆角效果、滚动条和其他样式
         #  self.chat_input.setMinimumHeight(40)
         self.chat_input.setStyleSheet("""
@@ -157,7 +162,6 @@ class ChatTab(QtWidgets.QWidget):
                 border-radius: 10px;  /* Add rounded corners */
             }
         """)
-
         # Creating a QGraphicsDropShadowEffect object and setting properties
         shadow = QtWidgets.QGraphicsDropShadowEffect(self.temperature_input)
         shadow.setBlurRadius(15)  # Shadow blur radius
@@ -176,7 +180,6 @@ class ChatTab(QtWidgets.QWidget):
                         border-radius: 10px;  /* Add rounded corners */
                     }
                 """)
-
         # Creating a QGraphicsDropShadowEffect object and setting properties
         shadow = QtWidgets.QGraphicsDropShadowEffect(self.temperature_input)
         shadow.setBlurRadius(15)  # Shadow blur radius
@@ -185,7 +188,6 @@ class ChatTab(QtWidgets.QWidget):
         # Applying the shadow effect to your QLineEdit widget
         self.temperature_input.setGraphicsEffect(shadow)
         self.max_tokens_input = QtWidgets.QLineEdit("4000", self)
-
         self.max_tokens_input.setStyleSheet("""
             QLineEdit {
                 border: none;  /* Remove border */
@@ -195,7 +197,6 @@ class ChatTab(QtWidgets.QWidget):
                 border-radius: 10px;  /* Add rounded corners */
             }
         """)
-
         # Creating a QGraphicsDropShadowEffect object and setting properties
         shadow = QtWidgets.QGraphicsDropShadowEffect(self.max_tokens_input)
         shadow.setBlurRadius(15)  # Shadow blur radius
@@ -227,10 +228,16 @@ class ChatTab(QtWidgets.QWidget):
         """)
         self.trans_layout = QtWidgets.QVBoxLayout(self.trans_group_box)
 
+        self.language_label = QtWidgets.QLabel("请选择您翻译的目标语言:")
+        self.language_label.setStyleSheet("""
+            QLabel {
+                font-size: 12px;  /* Decrease font size */
+                color: #333;  /* Darker text color */
+            }
+        """)
         # 创建一个下拉框
         self.language_combobox = QtWidgets.QComboBox()
         # 添加所述的选项
-
         languages = ["Chinese", "English", "German", "French", "Japanese"]
         flags = ["China.png",
                  "America.png",
@@ -272,14 +279,22 @@ class ChatTab(QtWidgets.QWidget):
                 color: black;
             }
         """)
+
+        language_layout = QtWidgets.QVBoxLayout()
+        language_layout.addWidget(self.language_label)
+        language_layout.addStretch(1)  # 再次添加弹性空间以使下拉框垂直居中
+        language_layout.addWidget(self.language_combobox)
+        language_layout.addStretch(1)
+
         # 将下拉框添加到布局中
-        self.trans_layout.addWidget(self.language_combobox)
+        self.trans_layout.addLayout(language_layout)
         self.config_layout.addWidget(self.api_group_box)
         self.config_layout.addWidget(self.par_group_box)
         self.config_layout.addWidget(self.trans_group_box)
         self.config_layout.setStretchFactor(self.api_group_box, 3)
         self.config_layout.setStretchFactor(self.par_group_box, 7)
         self.config_layout.setStretchFactor(self.trans_group_box, 4)
+
         self.send_button = QtWidgets.QPushButton("Send", self)
         self.send_button.setStyleSheet("""
             QPushButton {
@@ -369,8 +384,7 @@ class ChatTab(QtWidgets.QWidget):
         if not api_key:
             return  # 如果没有API密钥，返回
 
-        clipboard = QtWidgets.QApplication.clipboard()  # 获取系统剪贴板
-        clipboard_text = clipboard.text()  # 从剪贴板获取文本
+        clipboard_text = self.chat_input.toPlainText()  # 从剪贴板获取文本
 
         if not clipboard_text:
             return  # 如果剪贴板没有文本，返回
