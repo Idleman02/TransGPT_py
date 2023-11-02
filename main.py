@@ -1,5 +1,6 @@
 import configparser
 import sys
+import threading
 from datetime import datetime
 from PySide6.QtGui import QIcon
 import openai
@@ -8,8 +9,8 @@ from PySide6.QtCore import QCoreApplication
 from PySide6.QtCore import Slot
 
 import os
-os.environ['HTTP_PROXY'] = '192.168.43.224:7890'
-os.environ['HTTPS_PROXY'] = '192.168.43.224:7890'
+os.environ['HTTP_PROXY'] = '10.137.133.249:7890'
+os.environ['HTTPS_PROXY'] = '10.137.133.249:7890'
 
 # 以下函数只是一个示例, 你应该按照你的实际情况去验证API密钥
 def is_api_key_valid(api_key):
@@ -17,11 +18,17 @@ def is_api_key_valid(api_key):
 
 
 class ChatTab(QtWidgets.QWidget):
+
+    # 信号用于向聊天日志添加字符
+    character_displayed = QtCore.Signal(str)
+
     def __init__(self, api_key):
         super().__init__()
         self.conversation_history = []       
         self.selected_api = "gpt-3.5-turbo"
         self.api_key = api_key
+
+        self.character_displayed.connect(self.append_character_to_log)
 
         self.chat_log = QtWidgets.QTextEdit(self)
     #    self.chat_log.textChanged.connect(self.update_preview)
@@ -418,21 +425,48 @@ class ChatTab(QtWidgets.QWidget):
                 ]
             )
             response_text = response.choices[0].message["content"]  # 获取响应文本
-            response_cursor = self.chat_log.textCursor()  # 获取聊天日志的光标
+
+            # 启动后台线程来逐字显示响应
+            self.display_thread = threading.Thread(target=self.display_response, args=(response_text, clipboard_text))
+            self.display_thread.start()
+
+            # response_cursor = self.chat_log.textCursor()  # 获取聊天日志的光标
 
             # 将响应文本设置为黑色
-            response_cursor.insertHtml("<span style='color: black'>GPT: </span>")
-            response_cursor.insertText(f"翻译结果为：{response_text}\n\n")
+            # response_cursor.insertHtml("<span style='color: black'>GPT: </span>")
+            # response_cursor.insertText(f"翻译结果为：{response_text}\n\n")
 
-            self.chat_log.setReadOnly(False)  # 允许编辑聊天日志
-            # self.chat_log.append(f"User: {request}")
-            # self.chat_log.append(f"GPT: {response_text}\n")
+            # self.chat_log.setReadOnly(False)  # 允许编辑聊天日志
+            # self.chat_log.append(f"User: {clipboard_text}\n")
+            # self.chat_log.append(f"GPT：翻译结果为：{response_text}\n\n")
             self.chat_log.setReadOnly(True)  # 设置聊天日志为只读
+
         except Exception as e:
             # 错误处理
             error_msg = f"Error: {str(e)}"
             QtWidgets.QMessageBox.critical(self, "API Error", error_msg)
             self.chat_log.append(f"{error_msg}\n")
+
+    def display_response(self, response_text, clipboard_text):
+        user_message = f"User: {clipboard_text}\nGPT："
+        self.chat_log.append(user_message)
+
+        for char in response_text:
+            # 使用信号将字符添加到聊天日志中
+            self.character_displayed.emit(char)
+            QtCore.QThread.msleep(100)  # 控制显示速度
+
+        # 后台线程结束后启用编辑聊天日志
+        self.chat_log.setReadOnly(False)
+
+        # 将用户和GPT的消息添加到聊天日志中
+        self.chat_log.append("\n")
+
+    def append_character_to_log(self, char):
+        # 在聊天日志中添加字符
+        self.chat_log.moveCursor(QtGui.QTextCursor.End)
+        self.chat_log.insertPlainText(char)
+
 
     def showEvent(self, event):
         super().showEvent(event)  # 调用父类的showEvent
