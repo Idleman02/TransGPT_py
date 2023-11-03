@@ -1,4 +1,5 @@
 import configparser
+import json
 import sys
 import threading
 from datetime import datetime
@@ -7,10 +8,17 @@ import openai
 from PySide6 import QtWidgets, QtGui, QtCore
 from PySide6.QtCore import QCoreApplication
 from PySide6.QtCore import Slot
+import pyaudio
+import wave
+from pydub import AudioSegment
+from playsound import playsound
+import subprocess
+import time
+import requests
 
 import os
-os.environ['HTTP_PROXY'] = '10.137.133.249:7890'
-os.environ['HTTPS_PROXY'] = '10.137.133.249:7890'
+os.environ['HTTP_PROXY'] = '10.131.150.76:7890'
+os.environ['HTTPS_PROXY'] = '10.131.150.76:7890'
 
 # 以下函数只是一个示例, 你应该按照你的实际情况去验证API密钥
 def is_api_key_valid(api_key):
@@ -139,6 +147,11 @@ class ChatTab(QtWidgets.QWidget):
         self.api_gpt4_radio_button = QtWidgets.QRadioButton("GPT-4")
         self.api_gpt4_radio_button.toggled.connect(self.api_radio_button_toggled)
         self.api_group_box_layout.addWidget(self.api_gpt4_radio_button)
+
+        self.api_local_model_radio_button = QtWidgets.QRadioButton("Local Model")
+        self.api_local_model_radio_button.toggled.connect(self.api_radio_button_toggled)
+        self.api_group_box_layout.addWidget(self.api_local_model_radio_button)
+
 
         self.par_group_box = QtWidgets.QGroupBox("Parameter:")
         self.par_group_box.setStyleSheet("""
@@ -371,8 +384,55 @@ class ChatTab(QtWidgets.QWidget):
                 color: #FFFFFF;  /* White */
             }
         """)
-
         self.export_button.clicked.connect(self.export_chat)
+
+
+        self.record_translate_button = QtWidgets.QPushButton("Record to Translate", self)
+        self.record_translate_button.clicked.connect(self.start_recording)
+        self.record_translate_button.setStyleSheet("""
+            QPushButton {
+                background-color: #FFD700;  /* Gold */
+                color: #FFFFFF;  /* White */
+                border: none;  /* 移除外侧轮廓 */
+                border-radius: 15px;  /* Rounded corners */
+                padding: 10px 25px;  /* Padding: vertical, horizontal */
+                font-size: 16px;  /* Text size */
+                font-family: "Arial";  /* Font family */
+            }
+            QPushButton:hover {
+                background-color: #FFEC8B;  /* Lighter gold for hover */
+            }
+            QPushButton:pressed {
+                background-color: #FFEC8B;  /* Lighter gold for hover */
+            }
+        """)
+
+        self.record_send_button = QtWidgets.QPushButton("Record to Transcriptions", self)
+        self.record_send_button.clicked.connect(self.start_recording)
+        self.record_send_button.setStyleSheet("""
+            QPushButton {
+                background-color: #FF4500;  /* Orange Red */
+                color: #FFFFFF;  /* White */
+                border: 2px solid #FF6347;  /* Tomato */
+                border-radius: 15px;  /* Rounded corners */
+                padding: 10px 25px;  /* Padding: vertical, horizontal */
+                font-size: 16px;  /* Text size */
+                font-family: "Arial";  /* Font family */
+            }
+            QPushButton:hover {
+                background-color: #FF6347;  /* Tomato */
+            }
+            QPushButton:pressed {
+                background-color: #FFA07A;  /* Light Salmon */
+            }
+        """)
+
+        # 创建PyAudio对象
+        self.p = pyaudio.PyAudio()
+        self.stream = None
+        self.frames = []
+        self.recording = False
+        self.recorded_files = 0
 
         self.layout = QtWidgets.QVBoxLayout(self)
         self.layout.addWidget(self.chat_log)
@@ -385,6 +445,91 @@ class ChatTab(QtWidgets.QWidget):
         self.button_layout.addWidget(self.export_button)
         self.layout.addLayout(self.button_layout)
 
+        self.record_layout = QtWidgets.QHBoxLayout()
+        self.record_layout.addWidget(self.record_translate_button)
+        self.record_layout.addWidget(self.record_send_button)
+        self.layout.addLayout(self.record_layout)
+
+
+    def start_recording(self):
+        sender_button = self.sender()  # 获取触发信号的按钮
+
+        if self.stream is None:
+            # 打开音频流
+            self.stream = self.p.open(format=pyaudio.paInt16, channels=2, rate=16000, input=True, frames_per_buffer=2048)
+            self.frames = []  # 初始化录音帧列表
+
+            if sender_button == self.record_translate_button:
+                self.record_translate_button.setText("Stop Record")  # 更改按钮文本为 "Stop Record"
+            else:
+                self.record_send_button.setText("Stop Record")  # 更改按钮文本为 "Stop Record"
+
+            self.recording = True
+            while self.recording:
+                audio_data = self.stream.read(2048)  # 读出声卡缓冲区的音频数据
+                self.frames.append(audio_data)
+                QtWidgets.QApplication.processEvents()  # 强制处理事件，以确保按钮响应
+        else:
+            self.recording = False
+            output_folder = "record"
+            # 目标文件夹路径
+            if not os.path.exists(output_folder):
+                os.makedirs(output_folder)  # 如果文件夹不存在，创建它
+            # 构建目标文件的完整路径
+            output_path = os.path.join(output_folder, "recorded_audio.wav")
+            
+            # 将录制的音频保存为WAV文件
+            wf = wave.open(output_path, "wb")
+            wf.setnchannels(2)
+            wf.setsampwidth(2)
+            wf.setframerate(16000)
+            wf.writeframes("".encode().join(self.frames))
+            wf.close()
+
+            # 停止录音并保存音频文件
+            self.stream.stop_stream()
+            self.stream.close()
+            self.stream = None
+            self.p.terminate()
+            if sender_button == self.record_translate_button:
+                self.record_translate_button.setText("Record to Translate")
+            else:
+                self.record_send_button.setText("Record to Transcriptions")
+
+            self.upload_audio(output_path, sender_button)
+            # playsound(os.path.join(output_path))
+            # 上传音频文件到OpenAI API
+
+    def upload_audio(self, audio_file_path, sender_button):
+        api_key = self.api_key  # 获取API密钥
+        if not api_key:
+            return  # 如果没有API密钥，返回
+        openai.api_key = api_key  # 设置openai API密钥
+
+        temperature_text = self.temperature_input.text()  # 获取温度值
+        # 验证温度值的有效性
+        if float(temperature_text) < 0 or float(temperature_text) > 1:
+            QtWidgets.QMessageBox.warning(self, "Invalid Temperature",
+                                          "Please enter a valid temperature value between 0 and 1.")
+            return
+        
+        # 构建API请求
+        with open(audio_file_path, "rb") as audio_file:
+            if sender_button == self.record_translate_button:
+                transcript = openai.Audio.translate("whisper-1", audio_file)
+            else:
+                transcript = openai.Audio.transcribe("whisper-1", audio_file)
+
+        # 发送POST请求
+        response = transcript["text"]
+
+        # 启动后台线程来逐字显示响应
+        self.display_thread = threading.Thread(target=self.display_response, args=(response, "您输入的是一条语音"))
+        self.display_thread.start()
+        
+        self.chat_log.setReadOnly(True)  # 设置聊天日志为只读
+
+
     @Slot()
     def translate_from_clipboard(self):
         api_key = self.api_key  # 获取API密钥
@@ -394,6 +539,7 @@ class ChatTab(QtWidgets.QWidget):
         clipboard_text = self.chat_input.toPlainText()  # 从输入框获取文本
 
         if not clipboard_text:
+
             clipboard = QtGui.QGuiApplication.clipboard()  # 获取剪贴板
             clipboard_text = clipboard.text()  # 从剪贴板获取文本
 
@@ -479,6 +625,9 @@ class ChatTab(QtWidgets.QWidget):
             self.selected_api = "gpt-3.5-turbo"
         elif self.api_gpt4_radio_button.isChecked():
             self.selected_api = "gpt-4"
+        elif self.api_local_model_radio_button.isChecked():
+            # 用户选择了本地模型
+            self.selected_model = "Local Model"
 
     def send_message(self):
         # 在发送消息之前，禁用按钮
