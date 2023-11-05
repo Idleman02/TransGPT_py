@@ -1,6 +1,6 @@
+import os
 import threading
 import wave
-import os
 from datetime import datetime
 
 import chatglm_cpp
@@ -16,17 +16,20 @@ class ChatTab(QtWidgets.QWidget):
     update_chat_log_signal = Signal(str, str)
     set_button_state_signal = Signal(bool)
     set_api_button_state_signal = Signal(bool)
+    recording_state_signal = Signal(bool)
+
     def __init__(self, api_key):
         super().__init__()
-        self.model_path="model/model.bin"
+        self.model_path = ""
         self.conversation_history = []
+        self.record_thread = None
         self.selected_api = "gpt-3.5-turbo"
         self.api_key = api_key
 
         self.chat_log = QtWidgets.QTextEdit(self)
         self.chat_log.setReadOnly(True)
         normal_height_log = self.chat_log.sizeHint().height()
-        self.chat_log.setFixedHeight(normal_height_log * 1.5)
+        self.chat_log.setFixedHeight(normal_height_log * 1.6)
 
         self.chat_input = QtWidgets.QTextEdit(self)
         self.chat_input.setPlaceholderText("Send a message")
@@ -38,7 +41,7 @@ class ChatTab(QtWidgets.QWidget):
         self.chat_input.setGraphicsEffect(shadow_input)
 
         normal_height_input = self.chat_input.sizeHint().height()
-        self.chat_input.setFixedHeight(normal_height_input * 0.75)
+        self.chat_input.setFixedHeight(normal_height_input * 0.7)
 
         self.config_layout = QtWidgets.QHBoxLayout()
 
@@ -87,7 +90,7 @@ class ChatTab(QtWidgets.QWidget):
         self.trans_group_box = QtWidgets.QGroupBox("Translation Settings:")
         self.trans_layout = QtWidgets.QVBoxLayout(self.trans_group_box)
 
-        self.language_label = QtWidgets.QLabel("请选择您翻译的目标语言:")
+        self.language_label = QtWidgets.QLabel("Targating Language:")
         self.language_combobox = QtWidgets.QComboBox()
         languages = ["Chinese", "English", "German", "French", "Japanese"]
         flags = ["icon/China.png", "icon/America.png", "icon/Germany.jpg", "icon/France.jpg", "icon/Japan.png"]
@@ -114,6 +117,7 @@ class ChatTab(QtWidgets.QWidget):
         self.export_button = QtWidgets.QPushButton("Export", self)
         self.record_translate_button = QtWidgets.QPushButton("Record to Translate", self)
         self.record_send_button = QtWidgets.QPushButton("Record to Transcriptions", self)
+        self.clear_button = QtWidgets.QPushButton("Clear", self)
 
         self.layout = QtWidgets.QVBoxLayout(self)
         self.layout.addWidget(self.chat_log)
@@ -129,6 +133,7 @@ class ChatTab(QtWidgets.QWidget):
         self.record_layout = QtWidgets.QHBoxLayout()
         self.record_layout.addWidget(self.record_translate_button)
         self.record_layout.addWidget(self.record_send_button)
+        self.record_layout.addWidget(self.clear_button)
         self.layout.addLayout(self.record_layout)
 
         self.demo_ui()
@@ -138,31 +143,27 @@ class ChatTab(QtWidgets.QWidget):
         self.update_chat_log_signal.connect(self.update_chat_log)
         self.set_button_state_signal.connect(self.set_button_state)
         self.set_api_button_state_signal.connect(self.set_api_button_state)
+        self.recording_state_signal.connect(self.update_button_text)
         self.export_button.clicked.connect(self.export_chat)
         self.record_send_button.clicked.connect(self.start_recording)
+        self.clear_button.clicked.connect(self.clear)
 
-
-        self.p = pyaudio.PyAudio()
-        self.stream = None
-        self.frames = []
-        self.recording = False
-        self.recorded_files = 0
-
+        self.recording = threading.Event()
 
     @Slot()
-    def set_button_disabled(self,bool):
+    def set_button_disabled(self, bool):
         self.send_button.setDisabled(bool)
-        self.translate_button.setDisabled(bool)
+        self.clear_button.setDisabled(bool)
         self.export_button.setDisabled(bool)
+        self.translate_button.setDisabled(bool)
         self.record_send_button.setDisabled(bool)
         self.record_translate_button.setDisabled(bool)
 
     @Slot()
-    def set_api_button_disabled(self,bool):
+    def set_api_button_disabled(self, bool):
         self.api_gpt35_radio_button.setDisabled(bool)
         self.api_gpt4_radio_button.setDisabled(bool)
         self.api_local_model_radio_button.setDisabled(bool)
-
 
     @Slot(str, str)
     def update_chat_log(self, message, message_type):
@@ -173,13 +174,13 @@ class ChatTab(QtWidgets.QWidget):
             response_cursor.insertHtml("<span style='color: black; font-style: italic;'>You: </span>")
             response_cursor.insertText(f"{message}\n\n")
         elif message_type == "gpt-start":
-            response_cursor.insertHtml("<span style='color: red;'>GPT: </span>")
+            response_cursor.insertHtml("<span style='color: green;'>GPT: </span>")
             response_cursor.insertText(f"{message}")
         elif message_type == "gpt":
-            response_cursor.insertHtml("<span style='color: red;'> </span>")
+            response_cursor.insertHtml("<span style='color: green;'> </span>")
             response_cursor.insertText(f"{message}")
         elif message_type == "gpt-end":
-            response_cursor.insertHtml("<span style='color: red;'> </span>")
+            response_cursor.insertHtml("<span style='color: green;'> </span>")
             response_cursor.insertText(f"{message}\n\n")
         elif message_type == "gpt-start-translation":
             response_cursor.insertHtml("<span style='color: blue;'>GPT: </span>")
@@ -191,7 +192,7 @@ class ChatTab(QtWidgets.QWidget):
             response_cursor.insertHtml("<span style='color: blue;'> </span>")
             response_cursor.insertText(f"{message}\n\n")
         elif message_type == "error":
-            response_cursor.insertHtml("<span style='color: green;'> </span>")
+            response_cursor.insertHtml("<span style='color: red;'>ERROR: </span>")
             response_cursor.insertText(f"{message}\n\n")
 
     @Slot(bool)
@@ -219,12 +220,10 @@ class ChatTab(QtWidgets.QWidget):
         if self.selected_api == "local model":
             message_thread = threading.Thread(target=self.local_process_message, args=(message,))
         else:
-            message_thread = threading.Thread(target=self.process_message,args=(message,))
-        # Start the message processing in a new thread
+            message_thread = threading.Thread(target=self.process_message, args=(message,))
         message_thread.start()
 
-
-    def process_message(self,message):
+    def process_message(self, message):
         try:
             user_message = {"role": "user", "content": message}
             self.conversation_history.append(user_message)
@@ -232,6 +231,7 @@ class ChatTab(QtWidgets.QWidget):
             response = openai.ChatCompletion.create(
                 model=self.selected_api,
                 messages=self.conversation_history,  # Use the conversation history
+                temperature=float(self.temperature_input.text()),
                 stream=True
             )
 
@@ -243,7 +243,7 @@ class ChatTab(QtWidgets.QWidget):
                 collected_messages += response_text  # 保存消息
                 self.update_chat_log_signal.emit(response_text, "gpt")
             self.update_chat_log_signal.emit("", "gpt-end")
-            self.conversation_history.append({"role":"assistant","content":collected_messages})
+            self.conversation_history.append({"role": "assistant", "content": collected_messages})
             # Re-enable the send button once message processing is complete
             self.set_button_state_signal.emit(False)
 
@@ -253,18 +253,20 @@ class ChatTab(QtWidgets.QWidget):
             self.update_chat_log_signal.emit(error_msg, "error")
             self.set_button_state_signal.emit(False)
 
-    def local_process_message(self,message, max_length=2048, max_context_length=512, top_k=0, top_p=0.7, temp=0.95, repeat_penalty=1.0):
+    def local_process_message(self, message, max_length=2048, max_context_length=512, top_k=0, top_p=0.7, temp=0.95,
+                              repeat_penalty=1.0):
         try:
             pipeline = chatglm_cpp.Pipeline(self.model_path)
             self.conversation_history.append(message)
+            print(float(self.temperature_input.text()))
             # 2. 定义生成参数
             generation_kwargs = dict(
                 max_length=max_length,
                 max_context_length=max_context_length,
-                do_sample=temp > 0,
+                do_sample=float(self.temperature_input.text()) > 0,
                 top_k=top_k,
                 top_p=top_p,
-                temperature=temp,
+                temperature=float(self.temperature_input.text()),
                 repetition_penalty=repeat_penalty,
                 stream=True,
             )
@@ -297,8 +299,7 @@ class ChatTab(QtWidgets.QWidget):
 
         selected_language = self.language_combobox.currentText()
         request = f"Please translate the following sentence to {selected_language}，and give me translation outcome without anything else: {message}"
-        self.update_chat_log_signal.emit(message, "user")  # Update the chat log with the user message
-        # Start the message processing in a new thread
+        self.update_chat_log_signal.emit(message, "user")
 
         if self.selected_api == "local model":
             message_thread = threading.Thread(target=self.local_translate_message, args=(request,))
@@ -306,8 +307,7 @@ class ChatTab(QtWidgets.QWidget):
             message_thread = threading.Thread(target=self.translate_message, args=(request,))
         message_thread.start()
 
-
-    def translate_message(self,message):
+    def translate_message(self, message):
         try:
             user_message = {"role": "user", "content": message}
             openai.api_key = self.api_key  # Set the OpenAI API key
@@ -333,8 +333,8 @@ class ChatTab(QtWidgets.QWidget):
             self.update_chat_log_signal.emit(error_msg, "error")
             self.set_button_state_signal.emit(False)
 
-
-    def local_translate_message(self,message, max_length=2048, max_context_length=512, top_k=0, top_p=0.7, temp=0.95, repeat_penalty=1.0):
+    def local_translate_message(self, message, max_length=2048, max_context_length=512, top_k=0, top_p=0.7, temp=0.95,
+                                repeat_penalty=1.0):
         try:
             pipeline = chatglm_cpp.Pipeline(self.model_path)
             # 2. 定义生成参数
@@ -361,7 +361,6 @@ class ChatTab(QtWidgets.QWidget):
             self.update_chat_log_signal.emit(error_msg, "error")
             self.set_button_state_signal.emit(False)
 
-
     @Slot()
     def api_radio_button_toggled(self):
         # 切换API版本
@@ -370,7 +369,15 @@ class ChatTab(QtWidgets.QWidget):
         elif self.api_gpt4_radio_button.isChecked():
             self.selected_api = "gpt-4"
         elif self.api_local_model_radio_button.isChecked():
-            self.selected_api = "local model"
+            if self.model_path:
+                self.selected_api = "local model"
+            else:
+                QtWidgets.QMessageBox.critical(
+                    self,
+                    "Export Error",
+                    "Local model not loaded.",
+                )
+                self.api_gpt35_radio_button.click()
 
     @Slot()
     def export_chat(self):
@@ -394,54 +401,67 @@ class ChatTab(QtWidgets.QWidget):
             )
 
     @Slot()
+    def clear(self):
+        self.conversation_history.clear()
+        self.chat_log.clear()
+
+    def record(self):
+        p = pyaudio.PyAudio()
+        frames = []
+        stream = p.open(format=pyaudio.paInt16,
+                        channels=1,
+                        rate=10000,
+                        input=True,
+                        frames_per_buffer=2048)
+        self.recording_state_signal.emit(True)
+        # 开始录音
+        while not self.recording.is_set():
+            try:
+                # 读取音频数据
+                data = stream.read(2048)
+                frames.append(data)
+                print("1")
+                if self.recording.wait(timeout=0.05):  # timeout设置为1秒检查一次
+                    print("0")
+                    break
+            except Exception as e:
+                print(e)
+                break
+
+        stream.stop_stream()
+        stream.close()
+        p.terminate()
+
+        # 保存录音
+        output_folder = "records"
+        if not os.path.exists(output_folder):
+            os.makedirs(output_folder)
+        output_path = os.path.join(output_folder, "recorded_audio.wav")
+
+        with wave.open(output_path, 'wb') as wf:
+            wf.setnchannels(1)
+            wf.setsampwidth(p.get_sample_size(pyaudio.paInt16))
+            wf.setframerate(10000)
+            wf.writeframes(b''.join(frames))
+
+    @Slot(bool)
+    def update_button_text(self, is_recording):
+        self.record_send_button.setText("Stop Record" if is_recording else "Record to Transcriptions")
+
+    def finish_recording(self):
+        self.recording.set()
+        self.record_thread.join()
+        self.recording_state_signal.emit(False)
+        self.recording.clear()
+
+    @Slot()
     def start_recording(self):
-        sender_button = self.sender()  # 获取触发信号的按钮
-
-        if self.stream is None:
-            # 打开音频流
-            self.stream = self.p.open(format=pyaudio.paInt16, channels=1, rate=10000, input=True,
-                                      frames_per_buffer=2048)
-            self.frames = []  # 初始化录音帧列表
-
-            if sender_button == self.record_translate_button:
-                self.record_translate_button.setText("Stop Record")  # 更改按钮文本为 "Stop Record"
-            else:
-                self.record_send_button.setText("Stop Record")  # 更改按钮文本为 "Stop Record"
-
-            self.recording = True
-            while self.recording:
-                audio_data = self.stream.read(2048)  # 读出声卡缓冲区的音频数据
-                self.frames.append(audio_data)
-                QtWidgets.QApplication.processEvents()  # 强制处理事件，以确保按钮响应
+        if self.record_send_button.text() == "Record to Transcriptions":
+            self.record_thread = threading.Thread(target=self.record, args=())
+            self.record_thread.start()
         else:
-            self.recording = False
-            output_folder = "record"
-            # 目标文件夹路径
-            if not os.path.exists(output_folder):
-                os.makedirs(output_folder)  # 如果文件夹不存在，创建它
-            # 构建目标文件的完整路径
-            output_path = os.path.join(output_folder, "recorded_audio.wav")
-
-            # 将录制的音频保存为WAV文件
-            wf = wave.open(output_path, "wb")
-            wf.setnchannels(2)
-            wf.setsampwidth(2)
-            wf.setframerate(16000)
-            wf.writeframes("".encode().join(self.frames))
-            wf.close()
-
-            # 停止录音并保存音频文件
-            self.stream.stop_stream()
-            self.stream.close()
-            self.stream = None
-            self.p.terminate()
-            if sender_button == self.record_translate_button:
-                self.record_translate_button.setText("Record to Translate")
-            else:
-                self.record_send_button.setText("Record to Transcriptions")
-
-
-
+            finish_thread = threading.Thread(target=self.finish_recording(), args=())
+            finish_thread.start()
 
     def demo_ui(self):
         self.chat_log.setStyleSheet("""
@@ -521,6 +541,94 @@ class ChatTab(QtWidgets.QWidget):
                     font-weight: bold; /* make font bold */
                 }
                 """)
+
+        # 设置GPT-3.5单选按钮的样式
+        self.api_gpt35_radio_button.setStyleSheet("""
+            QRadioButton {
+                font-size: 16px;
+                color: #333333;
+                background-color: #C5E1A5;
+                border: 2px solid #8BC34A;
+                border-radius: 5px;
+                padding: 6px 12px;
+            }
+
+            QRadioButton:checked {
+                background-color: #8BC34A;
+                color: #FFFFFF;
+                border: 2px solid #8BC34A;
+            }
+
+            QRadioButton:hover {
+                background-color: #D7EED6;
+                border: 2px solid #C5E1A5;
+            }
+
+            QRadioButton:disabled {
+                background-color: #E0E0E0;
+                border: 2px solid #B0B0B0;
+                color: #888888;
+            }
+        """)
+
+        # 设置GPT-4单选按钮的样式
+        self.api_gpt4_radio_button.setStyleSheet("""
+            QRadioButton {
+                font-size: 16px;
+                color: #333333;
+                background-color: #E6E6FA;
+                border: 2px solid #9370DB;
+                border-radius: 5px;
+                padding: 6px 12px;
+            }
+
+            QRadioButton:checked {
+                background-color: #9370DB;
+                color: #FFFFFF;
+                border: 2px solid #9370DB;
+            }
+
+            QRadioButton:hover {
+                background-color: #D8BFD8;
+                border: 2px solid #A020F0;
+            }
+
+            QRadioButton:disabled {
+                background-color: #E0E0E0;
+                border: 2px solid #B0B0B0;
+                color: #888888;
+            }
+        """)
+
+        # 设置Local Model单选按钮的样式
+        self.api_local_model_radio_button.setStyleSheet("""
+            QRadioButton {
+                font-size: 16px;
+                color: #333333;
+                background-color: #FFDAB9;
+                border: 2px solid #FF8C00;
+                border-radius: 5px;
+                padding: 6px 12px;
+            }
+
+            QRadioButton:checked {
+                background-color: #FF6347;
+                color: #FFFFFF;
+                border: 2px solid #FF6347;
+            }
+
+            QRadioButton:hover {
+                background-color: #FFE4B5;
+                border: 2px solid #FFA500;
+            }
+
+            QRadioButton:disabled {
+                background-color: #E0E0E0;
+                border: 2px solid #B0B0B0;
+                color: #888888;
+            }
+        """)
+
         self.par_group_box.setStyleSheet("""
                 QGroupBox {
                     background-color: #FFFFFF;
@@ -582,8 +690,8 @@ class ChatTab(QtWidgets.QWidget):
                 """)
         self.language_label.setStyleSheet("""
                     QLabel {
-                        font-size: 12px;  /* Decrease font size */
-                        color: #333;  /* Darker text color */
+                        font-size: 15px;  /* Decrease font size */
+                        color: #000000;  /* Darker text color */
                     }
                 """)
         self.language_combobox.setStyleSheet("""
@@ -617,100 +725,149 @@ class ChatTab(QtWidgets.QWidget):
                         color: black;
                     }
                 """)
+
         self.send_button.setStyleSheet("""
                     QPushButton {
-                        background-color: #007FFF;  /* Light Blue */
-                        color: #FFFFFF;  /* White */
-                        border: 2px solid #1E90FF;  /* Dodger Blue */
+                        background-color: transparent;  /* No fill color */
+                        color: #4B0082;  /* Indigo */
+                        border: 2px solid #4B0082;  /* Indigo */
                         border-radius: 15px;  /* Rounded corners */
                         padding: 10px 25px;  /* Padding: vertical, horizontal */
                         font-size: 16px;  /* Text size */
                         font-family: "Arial";  /* Font family */
                     }
                     QPushButton:hover {
-                        background-color: #B0E0E6;  /* Powder Blue */
-                        color: #4682B4;  /* Steel Blue */
-                        border: 2px solid #4682B4;  /* Steel Blue */
+                        border: 2px solid #9400D3;  /* Violet border on hover */
+                        color: #9400D3;  /* Violet text on hover */
                     }
                     QPushButton:pressed {
-                        background-color: #87CEFA;  /* Light Sky Blue */
-                        color: #2E8B57;  /* Sea Green */
-                        border: 2px solid #2E8B57;  /* Sea Green */
+                        border: 2px solid #8A2BE2;  /* Blue Violet border on pressed */
+                        color: #8A2BE2;  /* Blue Violet text on pressed */
+                    }
+                    QPushButton:disabled {
+                        color: #D3D3D3;  /* Light Gray text when disabled */
+                        border: 2px solid #D3D3D3;  /* Light Gray border when disabled */
                     }
                 """)
         self.translate_button.setStyleSheet("""
                     QPushButton {
-                        background-color: #FFA07A;  /* Light Salmon */
-                        color: #FFFFFF;  /* White */
-                        border: 2px solid #FFDEAD;  /* Navajo White */
+                        background-color: transparent;  /* No fill color */
+                        color: #2E8B57;  /* Sea Green */
+                        border: 2px solid #2E8B57;  /* Sea Green */
                         border-radius: 15px;  /* Rounded corners */
                         padding: 10px 25px;  /* Padding: vertical, horizontal */
                         font-size: 16px;  /* Text size */
                         font-family: "Arial";  /* Font family */
                     }
                     QPushButton:hover {
-                        background-color: #FFE4B5;  /* Moccasin */
-                        color: #FF6347;  /* Tomato */
-                        border: 2px solid #FF6347;  /* Tomato */
+                        border: 2px solid #3CB371;  /* Medium Sea Green border on hover */
+                        color: #3CB371;  /* Medium Sea Green text on hover */
                     }
                     QPushButton:pressed {
-                        background-color: #FFDAB9;  /* Peach Puff */
-                        color: #FF4500;  /* Orange Red */
-                        border: 2px solid #FF4500;  /* Orange Red */
+                        border: 2px solid #66CDAA;  /* Medium Aquamarine border on pressed */
+                        color: #66CDAA;  /* Medium Aquamarine text on pressed */
+                    }
+                    QPushButton:disabled {
+                        color: #D3D3D3;  /* Light Gray text when disabled */
+                        border: 2px solid #D3D3D3;  /* Light Gray border when disabled */
                     }
                 """)
 
         self.export_button.setStyleSheet("""
-                    QPushButton {
-                        background-color: #5F9E6E;  /* 深绿色 */
-                        color: #FFFFFF;  /* White */
-                        border: none;  /* 移除外侧轮廓 */
-                        border-radius: 15px;  /* Rounded corners */
-                        padding: 10px 25px;  /* Padding: vertical, horizontal */
-                        font-size: 16px;  /* Text size */
-                        font-family: "Arial";  /* Font family */
-                    }
-                    QPushButton:hover {
-                        background-color: #4682B4;  /* Steel Blue */
-                        color: #FFFFFF;  /* White */
-                    }
-                    QPushButton:pressed {
-                        background-color: #2E8B57;  /* Sea Green */
-                        color: #FFFFFF;  /* White */
-                    }
-                """)
-
+                            QPushButton {
+                                background-color: #003366;  /* Dark Blue */
+                                color: #FFFFFF;  /* White */
+                                border: 2px solid #5F9E6E;  /* Dark Sea Green */
+                                border-radius: 15px;  /* Rounded corners */
+                                padding: 10px 25px;  /* Padding: vertical, horizontal */
+                                font-size: 16px;  /* Text size */
+                                font-family: "Arial";  /* Font family */
+                            }
+                            QPushButton:hover {
+                                background-color: #336699;  /* Lighter Dark Blue */
+                                border: 2px solid #20B2AA;  /* Light Sea Green */
+                            }
+                            QPushButton:pressed {
+                                background-color: #6699CC;  /* Even Lighter Dark Blue */
+                                border: 2px solid #3CB371;  /* Medium Sea Green */
+                            }
+                            QPushButton:disabled {
+                                color: #D3D3D3;  /* Light Gray text when disabled */
+                                border: 2px solid #D3D3D3;  /* Light Gray border when disabled */
+                                background-color: #A9A9A9;  /* Dark Gray background when disabled */
+                            }
+                        """)
         self.record_translate_button.setStyleSheet("""
                     QPushButton {
-                        background-color: #FFD700;  /* Gold */
-                        color: #FFFFFF;  /* White */
-                        border: none;  /* 移除外侧轮廓 */
+                        background-color: transparent;  /* No fill color */
+                        color: #8B0000;  /* Dark Red */
+                        border: 2px solid #8B0000;  /* Dark Red */
                         border-radius: 15px;  /* Rounded corners */
                         padding: 10px 25px;  /* Padding: vertical, horizontal */
                         font-size: 16px;  /* Text size */
                         font-family: "Arial";  /* Font family */
                     }
                     QPushButton:hover {
-                        background-color: #FFEC8B;  /* Lighter gold for hover */
+                        border: 2px solid #CD5C5C;  /* Indian Red border on hover */
+                        color: #CD5C5C;  /* Indian Red text on hover */
                     }
                     QPushButton:pressed {
-                        background-color: #FFEC8B;  /* Lighter gold for hover */
+                        border: 2px solid #FF6347;  /* Tomato border on pressed */
+                        color: #FF6347;  /* Tomato text on pressed */
+                    }
+                    QPushButton:disabled {
+                        color: #D3D3D3;  /* Light Gray text when disabled */
+                        border: 2px solid #D3D3D3;  /* Light Gray border when disabled */
+                        background-color: #A9A9A9;  /* Dark Gray background when disabled */
                     }
                 """)
         self.record_send_button.setStyleSheet("""
                     QPushButton {
-                        background-color: #FF4500;  /* Orange Red */
-                        color: #FFFFFF;  /* White */
-                        border: 2px solid #FF6347;  /* Tomato */
+                        background-color: transparent;  /* No fill color */
+                        color: #00008B;  /* Dark Blue */
+                        border: 2px solid #00008B;  /* Dark Blue */
                         border-radius: 15px;  /* Rounded corners */
                         padding: 10px 25px;  /* Padding: vertical, horizontal */
                         font-size: 16px;  /* Text size */
                         font-family: "Arial";  /* Font family */
                     }
                     QPushButton:hover {
-                        background-color: #FF6347;  /* Tomato */
+                        border: 2px solid #4682B4;  /* Steel Blue border on hover */
+                        color: #4682B4;  /* Steel Blue text on hover */
                     }
                     QPushButton:pressed {
-                        background-color: #FFA07A;  /* Light Salmon */
+                        border: 2px solid #1E90FF;  /* Dodger Blue border on pressed */
+                        color: #1E90FF;  /* Dodger Blue text on pressed */
+                    }
+                    QPushButton:disabled {
+                        color: #D3D3D3;  /* Light Gray text when disabled */
+                        border: 2px solid #D3D3D3;  /* Light Gray border when disabled */
+                        background-color: #A9A9A9;  /* Dark Gray background when disabled */
+                    }
+                """)
+
+        # 对clear_button的优化
+        self.clear_button.setStyleSheet("""
+                    QPushButton {
+                        background-color: #DD4132;  /* Tomato Red */
+                        color: #FFFFFF;  /* White */
+                        border: 2px solid #FAE03C;  /* Daffodil Yellow */
+                        border-radius: 15px;  /* Rounded corners */
+                        padding: 10px 25px;  /* Padding: vertical, horizontal */
+                        font-size: 16px;  /* Text size */
+                        font-family: "Arial";  /* Font family */
+                    }
+                    QPushButton:hover {
+                        background-color: #E94E77;  /* Pink */
+                        border: 2px solid #FFD662;  /* Sunflower Yellow */
+                    }
+                    QPushButton:pressed {
+                        background-color: #D2386C;  /* Rose */
+                        border: 2px solid #ECC81A;  /* Golden Poppy */
+                    }
+                    QPushButton:disabled {
+                        color: #D3D3D3;  /* Light Gray text when disabled */
+                        border: 2px solid #D3D3D3;  /* Light Gray border when disabled */
+                        background-color: #A9A9A9;  /* Dark Gray background when disabled */
                     }
                 """)
