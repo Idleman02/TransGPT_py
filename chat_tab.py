@@ -1,3 +1,4 @@
+import json
 import os
 import threading
 import wave
@@ -25,6 +26,7 @@ class ChatTab(QtWidgets.QWidget):
         self.record_thread = None
         self.selected_api = "gpt-3.5-turbo"
         self.api_key = api_key
+        self.sender_button = 1
 
         # 用于显示聊天记录的文本框
         self.chat_log = QtWidgets.QTextEdit(self)
@@ -143,6 +145,7 @@ class ChatTab(QtWidgets.QWidget):
         self.recording_state_signal.connect(self.update_button_text)
         self.export_button.clicked.connect(self.export_chat)
         self.record_send_button.clicked.connect(self.start_recording)
+        self.record_translate_button.clicked.connect(self.start_recording)
         self.clear_button.clicked.connect(self.clear)
 
         self.recording = threading.Event()
@@ -451,10 +454,15 @@ class ChatTab(QtWidgets.QWidget):
             wf.setsampwidth(p.get_sample_size(pyaudio.paInt16))
             wf.setframerate(10000)
             wf.writeframes(b''.join(frames))
+            
+        self.upload_audio(output_path)
 
     @Slot(bool)
     def update_button_text(self, is_recording):
-        self.record_send_button.setText("Stop Record" if is_recording else "Record to Transcriptions")
+        if self.sender_button == 1:
+            self.record_send_button.setText("Stop Record" if is_recording else "Record to Transcriptions")
+        else:
+            self.record_translate_button.setText("Stop Record" if is_recording else "Record to Translate")
 
     def finish_recording(self):
         self.recording.set()
@@ -464,12 +472,62 @@ class ChatTab(QtWidgets.QWidget):
 
     @Slot()
     def start_recording(self):
-        if self.record_send_button.text() == "Record to Transcriptions":
-            self.record_thread = threading.Thread(target=self.record, args=())
-            self.record_thread.start()
+        sender = self.sender()  # 获取触发信号的按钮
+
+        if sender == self.record_send_button:
+            self.sender_button = 1
         else:
-            finish_thread = threading.Thread(target=self.finish_recording(), args=())
-            finish_thread.start()
+            self.sender_button = 2
+
+        if self.sender_button == 1:
+            if self.record_send_button.text() == "Record to Transcriptions":
+                self.record_thread = threading.Thread(target=self.record, args=())
+                self.record_thread.start()
+            else:
+                finish_thread = threading.Thread(target=self.finish_recording(), args=())
+                finish_thread.start()
+        else:
+            if self.record_translate_button.text() == "Record to Translate":
+                self.record_thread = threading.Thread(target=self.record, args=())
+                self.record_thread.start()
+            else:
+                finish_thread = threading.Thread(target=self.finish_recording(), args=())
+                finish_thread.start()
+
+    def upload_audio(self, audio_file_path):
+            # Disable the send button to prevent multiple clicks
+        self.set_button_state_signal.emit(True)
+        self.set_api_button_state_signal.emit(True)
+
+        self.update_chat_log_signal.emit("您发送了一条语音", "user")
+
+        message_thread = threading.Thread(target=self.process_audio, args=(audio_file_path, ))
+        message_thread.start()
+
+    def process_audio(self, audio_file_path):
+        try:
+            openai.api_key = self.api_key  # 设置openai API密钥
+
+            # 构建API请求
+            with open(audio_file_path, "rb") as audio_file:
+                if self.sender_button == 1:
+                    transcript = openai.Audio.transcribe("whisper-1", audio_file)
+                else:
+                    transcript = openai.Audio.translate("whisper-1", audio_file)
+            response = transcript["text"]
+
+            self.update_chat_log_signal.emit("", "gpt-start-translation")
+            text_chunks = response.split("\n")
+            for chunk in text_chunks:  # 遍历数据流的事件
+                self.update_chat_log_signal.emit(chunk, "gpt-translation")
+            self.update_chat_log_signal.emit("", "gpt-end-translation")
+            self.set_button_state_signal.emit(False)
+
+        except Exception as e:
+            error_msg = f"Error: {str(e)}"
+            # Emit the signal to update the chat log with the error message
+            self.update_chat_log_signal.emit(error_msg, "error")
+            self.set_button_state_signal.emit(False)
 
     # 设置按钮样式
     def demo_ui(self):
