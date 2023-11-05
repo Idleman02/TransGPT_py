@@ -3,6 +3,7 @@ from PySide6 import QtWidgets
 import sys
 
 
+# OpenAI的API密钥和本地量化模型文件的路径
 class Configuration:
     def __init__(self, config_file):
         self.config = configparser.ConfigParser()

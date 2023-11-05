@@ -11,12 +11,12 @@ from PySide6.QtCore import Signal
 from PySide6.QtCore import Slot
 from PySide6.QtGui import QIcon
 
-
+# 管理主应用程序窗口，处理与GPT模型的消息交换
 class ChatTab(QtWidgets.QWidget):
-    update_chat_log_signal = Signal(str, str)
-    set_button_state_signal = Signal(bool)
-    set_api_button_state_signal = Signal(bool)
-    recording_state_signal = Signal(bool)
+    update_chat_log_signal = Signal(str, str)    # 传递聊天信息更新的信号，包括内容和发送者
+    set_button_state_signal = Signal(bool)       # 传递按钮状态的信号
+    set_api_button_state_signal = Signal(bool)   # 传递api状态的信号
+    recording_state_signal = Signal(bool)        # 传递录制状态的信号
 
     def __init__(self, api_key):
         super().__init__()
@@ -26,14 +26,17 @@ class ChatTab(QtWidgets.QWidget):
         self.selected_api = "gpt-3.5-turbo"
         self.api_key = api_key
 
+        # 用于显示聊天记录的文本框
         self.chat_log = QtWidgets.QTextEdit(self)
         self.chat_log.setReadOnly(True)
         normal_height_log = self.chat_log.sizeHint().height()
         self.chat_log.setFixedHeight(normal_height_log * 1.6)
 
+        # 用户输入信息的文本框
         self.chat_input = QtWidgets.QTextEdit(self)
         self.chat_input.setPlaceholderText("Send a message")
 
+        # 图形阴影效果，用于美化外观
         shadow_input = QtWidgets.QGraphicsDropShadowEffect(self.chat_input)
         shadow_input.setBlurRadius(15)
         shadow_input.setOffset(0, 0)
@@ -43,66 +46,57 @@ class ChatTab(QtWidgets.QWidget):
         normal_height_input = self.chat_input.sizeHint().height()
         self.chat_input.setFixedHeight(normal_height_input * 0.7)
 
+        # 选择api和本地模型的按钮
         self.config_layout = QtWidgets.QHBoxLayout()
-
         self.api_group_box = QtWidgets.QGroupBox("Model:")
         self.api_group_box_layout = QtWidgets.QVBoxLayout(self.api_group_box)
-
         self.api_gpt35_radio_button = QtWidgets.QRadioButton("GPT-3.5")
         self.api_gpt4_radio_button = QtWidgets.QRadioButton("GPT-4")
         self.api_local_model_radio_button = QtWidgets.QRadioButton("Local Model")
-
         self.api_group_box_layout.addWidget(self.api_gpt35_radio_button)
         self.api_group_box_layout.addWidget(self.api_gpt4_radio_button)
         self.api_group_box_layout.addWidget(self.api_local_model_radio_button)
-
         self.api_gpt35_radio_button.toggled.connect(self.api_radio_button_toggled)
         self.api_gpt4_radio_button.toggled.connect(self.api_radio_button_toggled)
         self.api_local_model_radio_button.toggled.connect(self.api_radio_button_toggled)
-
         self.api_gpt35_radio_button.setChecked(True)
 
+        # 设置参数的按钮
         self.par_group_box = QtWidgets.QGroupBox("Parameter:")
         self.par_layout = QtWidgets.QVBoxLayout(self.par_group_box)
         self.temperature_label = QtWidgets.QLabel("Temperature:")
         self.temperature_input = QtWidgets.QLineEdit("0.5", self)
-
         shadow_temp = QtWidgets.QGraphicsDropShadowEffect(self.temperature_input)
         shadow_temp.setBlurRadius(15)
         shadow_temp.setOffset(0, 0)
         shadow_temp.setColor(QtGui.QColor("grey"))
         self.temperature_input.setGraphicsEffect(shadow_temp)
-
         self.max_tokens_label = QtWidgets.QLabel("Max Tokens:")
         self.max_tokens_input = QtWidgets.QLineEdit("4000", self)
-
         shadow_max = QtWidgets.QGraphicsDropShadowEffect(self.max_tokens_input)
         shadow_max.setBlurRadius(15)
         shadow_max.setOffset(0, 0)
         shadow_max.setColor(QtGui.QColor("grey"))
-
         self.max_tokens_input.setGraphicsEffect(shadow_max)
         self.par_layout.addWidget(self.temperature_label)
         self.par_layout.addWidget(self.temperature_input)
         self.par_layout.addWidget(self.max_tokens_label)
         self.par_layout.addWidget(self.max_tokens_input)
 
+        # 选择语言的下拉框
         self.trans_group_box = QtWidgets.QGroupBox("Translation Settings:")
         self.trans_layout = QtWidgets.QVBoxLayout(self.trans_group_box)
-
         self.language_label = QtWidgets.QLabel("Targating Language:")
         self.language_combobox = QtWidgets.QComboBox()
         languages = ["Chinese", "English", "German", "French", "Japanese"]
         flags = ["icon/China.png", "icon/America.png", "icon/Germany.jpg", "icon/France.jpg", "icon/Japan.png"]
         for lang, flag in zip(languages, flags):
             self.language_combobox.addItem(QIcon(flag), lang)
-
         language_layout = QtWidgets.QVBoxLayout()
         language_layout.addWidget(self.language_label)
         language_layout.addStretch(1)
         language_layout.addWidget(self.language_combobox)
         language_layout.addStretch(1)
-
         self.trans_layout.addLayout(language_layout)
 
         self.config_layout.addWidget(self.api_group_box)
@@ -112,6 +106,7 @@ class ChatTab(QtWidgets.QWidget):
         self.config_layout.setStretchFactor(self.par_group_box, 7)
         self.config_layout.setStretchFactor(self.trans_group_box, 4)
 
+        # 功能按钮
         self.send_button = QtWidgets.QPushButton("Send", self)
         self.translate_button = QtWidgets.QPushButton("Translate", self)
         self.export_button = QtWidgets.QPushButton("Export", self)
@@ -119,6 +114,7 @@ class ChatTab(QtWidgets.QWidget):
         self.record_send_button = QtWidgets.QPushButton("Record to Transcriptions", self)
         self.clear_button = QtWidgets.QPushButton("Clear", self)
 
+        # 整体GUI布局
         self.layout = QtWidgets.QVBoxLayout(self)
         self.layout.addWidget(self.chat_log)
         self.layout.addLayout(self.config_layout)
@@ -136,6 +132,7 @@ class ChatTab(QtWidgets.QWidget):
         self.record_layout.addWidget(self.clear_button)
         self.layout.addLayout(self.record_layout)
 
+        # 设置按钮外观
         self.demo_ui()
 
         self.send_button.clicked.connect(self.send)
@@ -150,6 +147,7 @@ class ChatTab(QtWidgets.QWidget):
 
         self.recording = threading.Event()
 
+    # 禁用功能按钮
     @Slot()
     def set_button_disabled(self, bool):
         self.send_button.setDisabled(bool)
@@ -159,12 +157,14 @@ class ChatTab(QtWidgets.QWidget):
         self.record_send_button.setDisabled(bool)
         self.record_translate_button.setDisabled(bool)
 
+    # 禁用api选择按钮
     @Slot()
     def set_api_button_disabled(self, bool):
         self.api_gpt35_radio_button.setDisabled(bool)
         self.api_gpt4_radio_button.setDisabled(bool)
         self.api_local_model_radio_button.setDisabled(bool)
 
+    # 更新聊天记录并设置外观颜色
     @Slot(str, str)
     def update_chat_log(self, message, message_type):
         # This slot function updates the chat log with the message
@@ -203,6 +203,7 @@ class ChatTab(QtWidgets.QWidget):
     def set_api_button_state(self, state):
         self.set_api_button_disabled(state)
 
+    # 发送信息的功能
     @Slot()
     def send(self):
         # Disable the send button to prevent multiple clicks
@@ -223,6 +224,7 @@ class ChatTab(QtWidgets.QWidget):
             message_thread = threading.Thread(target=self.process_message, args=(message,))
         message_thread.start()
 
+    # 通过api和gpt通信
     def process_message(self, message):
         try:
             user_message = {"role": "user", "content": message}
@@ -253,6 +255,7 @@ class ChatTab(QtWidgets.QWidget):
             self.update_chat_log_signal.emit(error_msg, "error")
             self.set_button_state_signal.emit(False)
 
+    # 和部署在本地的ChatGLM-3 模型通信
     def local_process_message(self, message, max_length=2048, max_context_length=512, top_k=0, top_p=0.7, temp=0.95,
                               repeat_penalty=1.0):
         try:
@@ -285,6 +288,7 @@ class ChatTab(QtWidgets.QWidget):
             self.update_chat_log_signal.emit(error_msg, "error")
             self.set_button_state_signal.emit(False)
 
+    # 翻译功能
     @Slot()
     def translate(self):
         # Disable the send button to prevent multiple clicks
@@ -307,6 +311,7 @@ class ChatTab(QtWidgets.QWidget):
             message_thread = threading.Thread(target=self.translate_message, args=(request,))
         message_thread.start()
 
+    # 调用api让gpt翻译
     def translate_message(self, message):
         try:
             user_message = {"role": "user", "content": message}
@@ -333,6 +338,7 @@ class ChatTab(QtWidgets.QWidget):
             self.update_chat_log_signal.emit(error_msg, "error")
             self.set_button_state_signal.emit(False)
 
+    # 让部署在本地的ChatGLM-3 模型翻译
     def local_translate_message(self, message, max_length=2048, max_context_length=512, top_k=0, top_p=0.7, temp=0.95,
                                 repeat_penalty=1.0):
         try:
@@ -361,9 +367,9 @@ class ChatTab(QtWidgets.QWidget):
             self.update_chat_log_signal.emit(error_msg, "error")
             self.set_button_state_signal.emit(False)
 
+    # 切换API版本
     @Slot()
     def api_radio_button_toggled(self):
-        # 切换API版本
         if self.api_gpt35_radio_button.isChecked():
             self.selected_api = "gpt-3.5-turbo"
         elif self.api_gpt4_radio_button.isChecked():
@@ -379,9 +385,9 @@ class ChatTab(QtWidgets.QWidget):
                 )
                 self.api_gpt35_radio_button.click()
 
+    # 导出聊天记录为.txt文件
     @Slot()
     def export_chat(self):
-        # 导出聊天记录为.txt文件
         now = datetime.now()
         timestamp = now.strftime("%Y-%m-%d-%H-%M-%S")
         file_name = f"chat_{timestamp}.txt"  # 文件名为chat_时间戳.txt
@@ -400,11 +406,13 @@ class ChatTab(QtWidgets.QWidget):
                 f"An error occurred while exporting the chat: {str(e)}",
             )
 
+    # 清空聊天记录
     @Slot()
     def clear(self):
         self.conversation_history.clear()
         self.chat_log.clear()
 
+    # 录音
     def record(self):
         p = pyaudio.PyAudio()
         frames = []
@@ -463,6 +471,7 @@ class ChatTab(QtWidgets.QWidget):
             finish_thread = threading.Thread(target=self.finish_recording(), args=())
             finish_thread.start()
 
+    # 设置按钮样式
     def demo_ui(self):
         self.chat_log.setStyleSheet("""
                             QTextEdit {

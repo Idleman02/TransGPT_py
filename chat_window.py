@@ -3,7 +3,11 @@ from PySide6.QtCore import Slot
 from PySide6.QtWidgets import QFileDialog
 from chat_tab import ChatTab
 
+import os
+os.environ['HTTP_PROXY'] = '10.131.136.42:7890'
+os.environ['HTTPS_PROXY'] = '10.131.136.42:7890'
 
+# 管理用户交互并促进应用程序内部的对话流程
 # ChatWindow 类，主窗口
 class ChatWindow(QtWidgets.QWidget):
     def __init__(self, configuration):
