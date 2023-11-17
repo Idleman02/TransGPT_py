@@ -1,4 +1,3 @@
-import json
 import os
 import threading
 import wave
@@ -6,6 +5,7 @@ from datetime import datetime
 
 import chatglm_cpp
 import openai
+from openai import OpenAI
 import pyaudio
 from PySide6 import QtWidgets, QtGui
 from PySide6.QtCore import Signal
@@ -232,21 +232,33 @@ class ChatTab(QtWidgets.QWidget):
         try:
             user_message = {"role": "user", "content": message}
             self.conversation_history.append(user_message)
-            openai.api_key = self.api_key  # Set the OpenAI API key
-            response = openai.ChatCompletion.create(
+            client = OpenAI(api_key=self.api_key) 
+            # openai.api_key = self.api_key  # Set the OpenAI API key
+            # response = openai.ChatCompletion.create(
+            #     model=self.selected_api,
+            #     messages=self.conversation_history,  # Use the conversation history
+            #     temperature=float(self.temperature_input.text()),
+            #     stream=True
+            # )
+            response = client.chat.completions.create(
                 model=self.selected_api,
                 messages=self.conversation_history,  # Use the conversation history
-                temperature=float(self.temperature_input.text()),
-                stream=True
+                temperature=float(self.temperature_input.text())
+                # stream=True
             )
-
             collected_messages = ""
             self.update_chat_log_signal.emit("", "gpt-start")
-            for chunk in response:  # 遍历数据流的事件
-                chunk_message = chunk['choices'][0]['delta']  # 提取消息
-                response_text = chunk_message.get('content', '')  # 获取响应文本
-                collected_messages += response_text  # 保存消息
-                self.update_chat_log_signal.emit(response_text, "gpt")
+            # for chunk in response:  # 遍历数据流的事件
+            #     chunk_message = chunk['choices'][0]['delta']  # 提取消息
+            #     response_text = chunk_message.get('content', '')  # 获取响应文本
+            #     collected_messages += response_text  # 保存消息
+            #     self.update_chat_log_signal.emit(response_text, "gpt")
+
+            # 新的读取回应的语句（非流式输出）
+            response_text = response.choices[0].message.content
+            collected_messages += response_text
+            self.update_chat_log_signal.emit(response_text, "gpt")
+
             self.update_chat_log_signal.emit("", "gpt-end")
             self.conversation_history.append({"role": "assistant", "content": collected_messages})
             # Re-enable the send button once message processing is complete
@@ -318,18 +330,24 @@ class ChatTab(QtWidgets.QWidget):
     def translate_message(self, message):
         try:
             user_message = {"role": "user", "content": message}
-            openai.api_key = self.api_key  # Set the OpenAI API key
-            response = openai.ChatCompletion.create(
+            # openai.api_key = self.api_key  # Set the OpenAI API key
+            client = OpenAI(api_key = self.api_key)
+            response = client.chat.completions.create(
                 model=self.selected_api,
                 messages=[user_message],  # Use the conversation history
-                stream=True
+                # stream=True
             )
 
             self.update_chat_log_signal.emit("", "gpt-start-translation")
-            for chunk in response:  # 遍历数据流的事件
-                chunk_message = chunk['choices'][0]['delta']  # 提取消息
-                response_text = chunk_message.get('content', '')  # 获取响应文本
-                self.update_chat_log_signal.emit(response_text, "gpt-translation")
+            # for chunk in response:  # 遍历数据流的事件
+            #     chunk_message = chunk['choices'][0]['delta']  # 提取消息
+            #     response_text = chunk_message.get('content', '')  # 获取响应文本
+            #     self.update_chat_log_signal.emit(response_text, "gpt-translation")
+            
+            # 新的显示回应语句（无流式输出）
+            response_text = response.choices[0].message.content
+            self.update_chat_log_signal.emit(response_text, "gpt-translation")
+
             self.update_chat_log_signal.emit("", "gpt-end-translation")
 
             # Re-enable the send button once message processing is complete
@@ -506,15 +524,16 @@ class ChatTab(QtWidgets.QWidget):
 
     def process_audio(self, audio_file_path):
         try:
-            openai.api_key = self.api_key  # 设置openai API密钥
+            # openai.api_key = self.api_key  # 设置openai API密钥
+            client = OpenAI(api_key = self.api_key)
 
             # 构建API请求
             with open(audio_file_path, "rb") as audio_file:
                 if self.sender_button == 1:
-                    transcript = openai.Audio.transcribe("whisper-1", audio_file)
+                    transcript = client.audio.transcriptions.create(model="whisper-1", file=audio_file)
                 else:
-                    transcript = openai.Audio.translate("whisper-1", audio_file)
-            response = transcript["text"]
+                    transcript = client.audio.translations.create(model="whisper-1", file=audio_file)
+            response = transcript.text
 
             self.update_chat_log_signal.emit("", "gpt-start-translation")
             text_chunks = response.split("\n")
