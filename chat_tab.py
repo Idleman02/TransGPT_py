@@ -88,18 +88,35 @@ class ChatTab(QtWidgets.QWidget):
         # 选择语言的下拉框
         self.trans_group_box = QtWidgets.QGroupBox("Translation Settings:")
         self.trans_layout = QtWidgets.QVBoxLayout(self.trans_group_box)
+
         self.language_label = QtWidgets.QLabel("Targating Language:")
         self.language_combobox = QtWidgets.QComboBox()
         languages = ["Chinese", "English", "German", "French", "Japanese"]
         flags = ["icon/China.png", "icon/America.png", "icon/Germany.jpg", "icon/France.jpg", "icon/Japan.png"]
         for lang, flag in zip(languages, flags):
             self.language_combobox.addItem(QIcon(flag), lang)
+
+        # Targating Style
+        self.style_label = QtWidgets.QLabel("Targating Style:")
+        self.style_combobox = QtWidgets.QComboBox()
+        styles = ["Normal", "Simple", "Academic", "Entertainment"]
+        for style in styles:
+            self.style_combobox.addItem(style)
+
         language_layout = QtWidgets.QVBoxLayout()
         language_layout.addWidget(self.language_label)
         language_layout.addStretch(1)
         language_layout.addWidget(self.language_combobox)
         language_layout.addStretch(1)
+        
+        style_layout = QtWidgets.QVBoxLayout()
+        style_layout.addWidget(self.style_label)
+        style_layout.addStretch(1)
+        style_layout.addWidget(self.style_combobox)
+        style_layout.addStretch(1)
+        
         self.trans_layout.addLayout(language_layout)
+        self.trans_layout.addLayout(style_layout)
 
         self.config_layout.addWidget(self.api_group_box)
         self.config_layout.addWidget(self.par_group_box)
@@ -305,7 +322,8 @@ class ChatTab(QtWidgets.QWidget):
         self.chat_input.clear()  # Clear the input box
 
         selected_language = self.language_combobox.currentText()
-        request = f"Please translate the following sentence to {selected_language}，and give me translation outcome without anything else: {message}"
+        selected_style = self.style_combobox.currentText()
+        request = f"Please translate the following sentence to {selected_language}，use {selected_style} translation style, and give me translation outcome without anything else: {message}"
         self.update_chat_log_signal.emit(message, "user")
 
         if self.selected_api == "local model":
@@ -766,6 +784,43 @@ class ChatTab(QtWidgets.QWidget):
                     }
                 """)
         self.language_combobox.setStyleSheet("""
+                    QComboBox {
+                        font-size: 16px;
+                        padding: 10px;
+                        border: 2px solid #4CAF50;  /* Green border */
+                        border-radius: 10px;  /* Rounded corners */
+                        background-color: #E8F5E9;  /* Light Green background */
+                    }
+                    QComboBox:hover {
+                        border: 2px solid #388E3C;  /* Darker green border when hovered */
+                    }
+                    QComboBox QAbstractItemView {
+                        font-size: 16px;
+                        padding: 10px;
+                        selection-background-color: #C8E6C9;  /* Slightly darker light green selection */
+                        selection-color: black;  /* Black text for selected item */
+                    }
+                    QComboBox::drop-down {
+                        border: 0;  /* No border for the drop-down arrow */
+                        padding-right: 8px;  /* Adjust padding for the drop-down arrow */
+                    }
+                    QComboBox::down-arrow {
+                        image: url(/path-to-your-icon/arrow-down-icon.png);  /* Customize drop-down arrow icon */
+                    }
+                    QComboBox::item:selected {
+                        color: black;
+                    }
+                    QComboBox::item {
+                        color: black;
+                    }
+                """)
+        self.style_label.setStyleSheet("""
+                    QLabel {
+                        font-size: 15px;  /* Decrease font size */
+                        color: #000000;  /* Darker text color */
+                    }
+                """)
+        self.style_combobox.setStyleSheet("""
                     QComboBox {
                         font-size: 16px;
                         padding: 10px;
