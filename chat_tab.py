@@ -233,32 +233,20 @@ class ChatTab(QtWidgets.QWidget):
             user_message = {"role": "user", "content": message}
             self.conversation_history.append(user_message)
             client = OpenAI(api_key=self.api_key) 
-            # openai.api_key = self.api_key  # Set the OpenAI API key
-            # response = openai.ChatCompletion.create(
-            #     model=self.selected_api,
-            #     messages=self.conversation_history,  # Use the conversation history
-            #     temperature=float(self.temperature_input.text()),
-            #     stream=True
-            # )
             response = client.chat.completions.create(
                 model=self.selected_api,
                 messages=self.conversation_history,  # Use the conversation history
-                temperature=float(self.temperature_input.text())
-                # stream=True
+                temperature=float(self.temperature_input.text()),
+                stream=True
             )
+
             collected_messages = ""
             self.update_chat_log_signal.emit("", "gpt-start")
-            # for chunk in response:  # 遍历数据流的事件
-            #     chunk_message = chunk['choices'][0]['delta']  # 提取消息
-            #     response_text = chunk_message.get('content', '')  # 获取响应文本
-            #     collected_messages += response_text  # 保存消息
-            #     self.update_chat_log_signal.emit(response_text, "gpt")
-
-            # 新的读取回应的语句（非流式输出）
-            response_text = response.choices[0].message.content
-            collected_messages += response_text
-            self.update_chat_log_signal.emit(response_text, "gpt")
-
+            for chunk in response:  # 遍历数据流的事件
+                chunk_message = chunk.choices[0].delta.content # 提取消息
+                if chunk_message is not None:
+                    collected_messages += chunk_message  # 保存消息
+                    self.update_chat_log_signal.emit(chunk_message, "gpt")
             self.update_chat_log_signal.emit("", "gpt-end")
             self.conversation_history.append({"role": "assistant", "content": collected_messages})
             # Re-enable the send button once message processing is complete
@@ -335,19 +323,16 @@ class ChatTab(QtWidgets.QWidget):
             response = client.chat.completions.create(
                 model=self.selected_api,
                 messages=[user_message],  # Use the conversation history
-                # stream=True
+                stream=True
             )
 
             self.update_chat_log_signal.emit("", "gpt-start-translation")
-            # for chunk in response:  # 遍历数据流的事件
-            #     chunk_message = chunk['choices'][0]['delta']  # 提取消息
-            #     response_text = chunk_message.get('content', '')  # 获取响应文本
-            #     self.update_chat_log_signal.emit(response_text, "gpt-translation")
-            
-            # 新的显示回应语句（无流式输出）
-            response_text = response.choices[0].message.content
-            self.update_chat_log_signal.emit(response_text, "gpt-translation")
-
+            for chunk in response:  # 遍历数据流的事件
+                chunk_message = chunk.choices[0].delta.content # 提取消息
+                if chunk_message is not None:
+                    self.update_chat_log_signal.emit(chunk_message, "gpt-translation")
+            # response_text = response.choices[0].message.content
+            # self.update_chat_log_signal.emit(response_text, "gpt-translation")
             self.update_chat_log_signal.emit("", "gpt-end-translation")
 
             # Re-enable the send button once message processing is complete
