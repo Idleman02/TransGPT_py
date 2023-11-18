@@ -1,11 +1,12 @@
-from PySide6 import QtWidgets
+from PySide6 import QtWidgets, QtCore
 from PySide6.QtCore import Slot
-from PySide6.QtWidgets import QFileDialog
+from PySide6.QtWidgets import QFileDialog, QMainWindow
 from chat_tab import ChatTab
+from min_tab import MinTab
 
 import os
-os.environ['HTTP_PROXY'] = '10.131.136.42:7890'
-os.environ['HTTPS_PROXY'] = '10.131.136.42:7890'
+os.environ['HTTP_PROXY'] = '10.131.216.107:7890'
+os.environ['HTTPS_PROXY'] = '10.131.216.107:7890'
 
 # 管理用户交互并促进应用程序内部的对话流程
 # ChatWindow 类，主窗口
@@ -17,6 +18,11 @@ class ChatWindow(QtWidgets.QWidget):
         self.setStyleSheet("background-color: white;")
         self.setWindowTitle("TransGPT")
         self.setGeometry(50, 50, 800, 600)
+
+        # 用于独立窗口
+        self.new_window = None
+        self.chat_tab = None
+        self.opened_windows = []  # 用于存储已经打开的窗口
 
         self.tab_widget = QtWidgets.QTabWidget(self)
         self.tab_widget.setTabsClosable(True)
@@ -32,6 +38,9 @@ class ChatWindow(QtWidgets.QWidget):
         self.new_tab_button = QtWidgets.QPushButton("New Chat Tab", self)
         self.new_tab_button.clicked.connect(self.add_new_tab)
 
+        self.min_button = QtWidgets.QPushButton("Minimize", self)
+        self.min_button.clicked.connect(self.min_tab)
+
         self.bottom_box = QtWidgets.QGroupBox()
         self.bottom_layout = QtWidgets.QHBoxLayout(self.bottom_box)
         self.copyright = QtWidgets.QLabel("© [2023] Oops Computing Team. All Rights Reserved.")
@@ -39,6 +48,7 @@ class ChatWindow(QtWidgets.QWidget):
         self.bottom_layout.addWidget(self.copyright)
         self.bottom_layout.addWidget(self.import_button)
         self.bottom_layout.addWidget(self.new_tab_button)
+        self.bottom_layout.addWidget(self.min_button)
 
         self.layout = QtWidgets.QVBoxLayout(self)
         self.layout.addWidget(self.tab_widget)
@@ -47,6 +57,75 @@ class ChatWindow(QtWidgets.QWidget):
         self.add_new_tab()
         self.deco_ui()
 
+
+    def add_new_tab(self):
+        self.tab_count += 1
+        api_key = self.configuration.get_api_key()
+        chat_tab = ChatTab(api_key)
+        index = self.tab_widget.addTab(chat_tab, f"Chat {self.tab_count}")
+        self.tab_widget.setCurrentIndex(index)
+
+    def min_tab(self):
+        self.new_window = QMainWindow()
+        self.new_window.setWindowTitle(f"Chat {self.tab_count}")
+
+        # 获取当前选项卡的 ChatTab 实例
+        current_tab = self.tab_widget.currentWidget()
+        selected_api = current_tab.selected_api
+        language = current_tab.language_combobox.currentText()
+        api_key = self.configuration.get_api_key()
+        style = current_tab.style_combobox.currentText()
+
+        self.chat_tab = MinTab(api_key, selected_api, language, style)
+        self.new_window.setCentralWidget(self.chat_tab)
+        self.new_window.setGeometry(100, 100, 800, 600)
+
+        # 连接 self.new_window 的 destroyed 信号
+        self.new_window.destroyed.connect(self.show_normal)
+
+        # 在小窗口被关闭时，检查主窗口是否处于最小化状态
+        self.new_window.installEventFilter(self)
+
+        self.new_window.show()
+        self.opened_windows.append(self.new_window)
+        self.tab_count += 1
+
+        # 最小化原始页
+        self.showMinimized()
+
+    # 在主窗口关闭时关闭所有已打开的窗口
+    def closeEvent(self, event):
+        if self.opened_windows:
+            for window in self.opened_windows:
+                window.close()
+            event.accept()
+
+    def eventFilter(self, obj, event):
+        if obj == self.new_window and event.type() == QtCore.QEvent.Close:
+            self.show_normal()
+        return super().eventFilter(obj, event)
+
+    # 主窗口正常化
+    def show_normal(self):
+        self.setFocus()
+        self.showNormal()
+
+    def close_tab(self, index):
+        if self.tab_widget.count() > 1:
+            self.tab_widget.removeTab(index)
+
+    def check_tab_count(self):
+        if self.tab_widget.count() == 0:
+            QtWidgets.QApplication.quit()
+
+    @Slot()
+    def import_model(self):
+        file_name, _ = QFileDialog.getOpenFileName(self, "Open .bin File", "", "BIN Files (*.bin)")
+        from typing import cast
+        current_tab = cast(ChatTab, self.tab_widget.currentWidget())
+        current_tab.model_path=file_name
+
+    
     def deco_ui(self):
         self.setStyleSheet("background-color: white;")
         self.copyright.setStyleSheet("background-color: white;")
@@ -130,27 +209,27 @@ class ChatWindow(QtWidgets.QWidget):
             }
         """)
 
-    def add_new_tab(self):
-        self.tab_count += 1
-        api_key = self.configuration.get_api_key()
-        chat_tab = ChatTab(api_key)
-        index = self.tab_widget.addTab(chat_tab, f"Chat {self.tab_count}")
-        self.tab_widget.setCurrentIndex(index)
-
-    def close_tab(self, index):
-        if self.tab_widget.count() > 1:
-            self.tab_widget.removeTab(index)
-
-    def check_tab_count(self):
-        if self.tab_widget.count() == 0:
-            QtWidgets.QApplication.quit()
-
-    @Slot()
-    def import_model(self):
-        file_name, _ = QFileDialog.getOpenFileName(self, "Open .bin File", "", "BIN Files (*.bin)")
-        from typing import cast
-        current_tab = cast(ChatTab, self.tab_widget.currentWidget())
-        current_tab.model_path=file_name
+        self.min_button.setStyleSheet("""
+            QPushButton {
+                background-color: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1,
+                                                  stop: 0 #D2B48C, stop: 1 #D2B48C);
+                color: #2F4F4F;
+                border: 2px solid #6699cc;
+                border-radius: 0; /* 移除圆角矩形 */
+                padding: 10px 25px;
+                font-size: 16px;
+                font-family: "Arial";
+            }
+            QPushButton:hover {
+                background-color: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1,
+                                                  stop: 0 #FFD700, stop: 1 #FFD700);
+                border: 2px solid #336699;
+            }
+            QPushButton:pressed {
+                background-color: #cd853f;
+                color: #FFFFFF;
+            }
+        """)
 
 
 
