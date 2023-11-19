@@ -2,11 +2,11 @@ from PySide6 import QtWidgets, QtCore
 from PySide6.QtCore import Slot
 from PySide6.QtWidgets import QFileDialog, QMainWindow
 from chat_tab import ChatTab
-from min_tab import MinTab
+from component import MinTab
 
 import os
-os.environ['HTTP_PROXY'] = '10.131.216.107:7890'
-os.environ['HTTPS_PROXY'] = '10.131.216.107:7890'
+os.environ['HTTP_PROXY'] = '192.168.43.224:7890'
+os.environ['HTTPS_PROXY'] = '192.168.43.224:7890'
 
 # 管理用户交互并促进应用程序内部的对话流程
 # ChatWindow 类，主窗口
@@ -67,18 +67,14 @@ class ChatWindow(QtWidgets.QWidget):
 
     def min_tab(self):
         self.new_window = QMainWindow()
-        self.new_window.setWindowTitle(f"Chat {self.tab_count}")
+        self.new_window.setWindowTitle(f"Widget")
 
-        # 获取当前选项卡的 ChatTab 实例
-        current_tab = self.tab_widget.currentWidget()
-        selected_api = current_tab.selected_api
-        language = current_tab.language_combobox.currentText()
         api_key = self.configuration.get_api_key()
-        style = current_tab.style_combobox.currentText()
-
-        self.chat_tab = MinTab(api_key, selected_api, language, style)
+        self.chat_tab = MinTab(api_key)
         self.new_window.setCentralWidget(self.chat_tab)
-        self.new_window.setGeometry(100, 100, 800, 600)
+        self.new_window.setFixedHeight(300)
+        self.new_window.setFixedWidth(400)
+        self.new_window.setStyleSheet("background-color: white;")
 
         # 连接 self.new_window 的 destroyed 信号
         self.new_window.destroyed.connect(self.show_normal)
@@ -88,7 +84,6 @@ class ChatWindow(QtWidgets.QWidget):
 
         self.new_window.show()
         self.opened_windows.append(self.new_window)
-        self.tab_count += 1
 
         # 最小化原始页
         self.showMinimized()
