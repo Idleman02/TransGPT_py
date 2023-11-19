@@ -11,6 +11,8 @@ from PySide6 import QtWidgets, QtGui
 from PySide6.QtCore import Signal
 from PySide6.QtCore import Slot
 from PySide6.QtGui import QIcon
+from PySide6.QtCore import Qt, QTimer
+import time
 
 # 管理主应用程序窗口，处理与GPT模型的消息交换
 class ChatTab(QtWidgets.QWidget):
@@ -28,11 +30,17 @@ class ChatTab(QtWidgets.QWidget):
         self.api_key = api_key
         self.sender_button = 1
 
+        # 创建一个计时器
+        self.recording_timer = QTimer(self)  # 创建一个计时器
+        self.recording_start_time = None
+        self.recording_timer.timeout.connect(self.update_recording_time)  # 连接信号
+
         # 用于显示聊天记录的文本框
         self.chat_log = QtWidgets.QTextEdit(self)
         self.chat_log.setReadOnly(True)
         normal_height_log = self.chat_log.sizeHint().height()
         self.chat_log.setFixedHeight(normal_height_log * 1.6)
+        self.chat_log.setTextInteractionFlags(Qt.NoTextInteraction)  # 禁止文本交互
 
         # 用户输入信息的文本框
         self.chat_input = QtWidgets.QTextEdit(self)
@@ -159,7 +167,7 @@ class ChatTab(QtWidgets.QWidget):
         self.update_chat_log_signal.connect(self.update_chat_log)
         self.set_button_state_signal.connect(self.set_button_state)
         self.set_api_button_state_signal.connect(self.set_api_button_state)
-        self.recording_state_signal.connect(self.update_button_text)
+        # self.recording_state_signal.connect(self.update_button_text)
         self.export_button.clicked.connect(self.export_chat)
         self.record_send_button.clicked.connect(self.start_recording)
         self.record_translate_button.clicked.connect(self.start_recording)
@@ -478,18 +486,25 @@ class ChatTab(QtWidgets.QWidget):
             
         self.upload_audio(output_path)
 
-    @Slot(bool)
-    def update_button_text(self, is_recording):
-        if self.sender_button == 1:
-            self.record_send_button.setText("Stop Record" if is_recording else "Record to Transcriptions")
-        else:
-            self.record_translate_button.setText("Stop Record" if is_recording else "Record to Translate")
+    # @Slot(bool)
+    # def update_button_text(self, is_recording):
+    #     if self.sender_button == 1:
+    #         self.record_send_button.setText("Stop Record" if is_recording else "Record to Transcriptions")
+    #     else:
+    #         self.record_translate_button.setText("Stop Record" if is_recording else "Record to Translate")
 
+    # 修改 finish_recording 方法来停止计时器
     def finish_recording(self):
         self.recording.set()
         self.record_thread.join()
+        self.recording_timer.stop()  # 停止计时器
+        self.recording_start_time = None
         self.recording_state_signal.emit(False)
         self.recording.clear()
+        if self.sender_button == 1:
+            self.record_send_button.setText("Record to Transcriptions")
+        elif self.sender_button == 2:
+            self.record_translate_button.setText("Record to Translate")
 
     @Slot()
     def start_recording(self):
@@ -502,18 +517,22 @@ class ChatTab(QtWidgets.QWidget):
 
         if self.sender_button == 1:
             if self.record_send_button.text() == "Record to Transcriptions":
+                self.record_send_button.setText("Recording... 0s")
+                self.recording_start_time = time.time()
+                self.recording_timer.start(1000)  # 每秒更新一次
                 self.record_thread = threading.Thread(target=self.record, args=())
                 self.record_thread.start()
             else:
-                finish_thread = threading.Thread(target=self.finish_recording(), args=())
-                finish_thread.start()
+                self.finish_recording()
         else:
             if self.record_translate_button.text() == "Record to Translate":
+                self.record_translate_button.setText("Recording... 0s")
+                self.recording_start_time = time.time()
+                self.recording_timer.start(1000)  # 每秒更新一次
                 self.record_thread = threading.Thread(target=self.record, args=())
                 self.record_thread.start()
             else:
-                finish_thread = threading.Thread(target=self.finish_recording(), args=())
-                finish_thread.start()
+                self.finish_recording()
 
     def upload_audio(self, audio_file_path):
             # Disable the send button to prevent multiple clicks
@@ -550,6 +569,15 @@ class ChatTab(QtWidgets.QWidget):
             # Emit the signal to update the chat log with the error message
             self.update_chat_log_signal.emit(error_msg, "error")
             self.set_button_state_signal.emit(False)
+
+    def update_recording_time(self):
+        if self.recording_start_time:
+            elapsed_time = time.time() - self.recording_start_time
+            button_text = f"Recording... {int(elapsed_time)}s"
+            if self.sender_button == 1:
+                self.record_send_button.setText(button_text)
+            elif self.sender_button == 2:
+                self.record_translate_button.setText(button_text)
 
     # 设置按钮样式
     def demo_ui(self):
