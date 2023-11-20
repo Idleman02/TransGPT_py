@@ -107,7 +107,7 @@ class ChatTab(QtWidgets.QWidget):
         # Targating Style
         self.style_label = QtWidgets.QLabel("Targating Style:")
         self.style_combobox = QtWidgets.QComboBox()
-        styles = ["Normal", "Simple", "Academic", "Entertainment"]
+        styles = ["Normal", "Simple", "Academic", "interesting"]
         for style in styles:
             self.style_combobox.addItem(style)
 
@@ -331,7 +331,15 @@ class ChatTab(QtWidgets.QWidget):
 
         selected_language = self.language_combobox.currentText()
         selected_style = self.style_combobox.currentText()
-        request = f"Please translate the following sentence to {selected_language}，use {selected_style} translation style, and give me translation outcome without anything else: {message}"
+        if selected_style == "interesting":
+            style_text = "Use a relaxed, playful and cute translation style that needs to be distinguished from normal translation"
+        elif selected_style == "academic":
+            style_text = "Use a rigorous and academic translation style that needs to be distinguished from normal translation"
+        elif selected_style == "simple":
+            style_text = "Use a simple and concise translation style, only translate the general meaning, and need to be different from normal translation."
+        else:
+            style_text = " "
+        request = f"Please translate the following sentence to {selected_language}，{style_text}, and give me translation outcome without anything else: {message}"
         self.update_chat_log_signal.emit(message, "user")
 
         if self.selected_api == "local model":

@@ -39,8 +39,8 @@ class MinTab(QtWidgets.QWidget):
 
         self.comboBox = QtWidgets.QComboBox(self)
         self.comboBox.setObjectName("comboBox")
-        languages = ["English", "Chinese", "German", "French", "Japanese"]
-        flags = ["icon/America.png", "icon/China.png", "icon/Germany.jpg", "icon/France.jpg", "icon/Japan.png"]
+        languages = ["Chinese", "English", "German", "French", "Japanese"]
+        flags = ["icon/China.png", "icon/America.png", "icon/Germany.jpg", "icon/France.jpg", "icon/Japan.png"]
         for lang, flag in zip(languages, flags):
             self.comboBox.addItem(QIcon(flag), lang)
 
